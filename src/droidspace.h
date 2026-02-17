@@ -50,7 +50,7 @@
 #define DS_VERSION "3.0"
 #define DS_MAX_TTYS 6
 #define DS_UUID_LEN 32
-#define DS_MAX_CONTAINERS 64
+#define DS_MAX_CONTAINERS 1024
 #define DS_STOP_TIMEOUT 8 /* seconds */
 #define DS_PID_SCAN_RETRIES 20
 #define DS_PID_SCAN_DELAY_US 200000 /* 200ms */
@@ -60,7 +60,7 @@
 #define DS_WORKSPACE_LINUX "/var/lib/Droidspaces"
 #define DS_PIDS_SUBDIR "Pids"
 #define DS_IMG_MOUNT_ROOT_UNIVERSAL "/mnt/Droidspaces"
-#define DS_MAX_MOUNT_TRIES 100
+#define DS_MAX_MOUNT_TRIES 1024
 
 /* Device nodes to create in container /dev (when using tmpfs) */
 #define DS_CONTAINER_MARKER "droidspaces"
