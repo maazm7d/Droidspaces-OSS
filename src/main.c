@@ -9,9 +9,12 @@
  * ---------------------------------------------------------------------------*/
 
 void print_usage(void) {
-  printf("\n" C_BOLD "Droidspaces v%s — High-performance Container Runtime for "
-         "Android/Linux" C_RESET "\n",
-         DS_VERSION);
+  printf("\n" C_BOLD
+         "%s v%s — High-performance Container Runtime for Android/Linux" C_RESET
+         "\n",
+         DS_PROJECT_NAME, DS_VERSION);
+  printf("by " C_CYAN "%s" C_RESET "\n", DS_AUTHOR);
+  printf("\n" C_BLUE "%s" C_RESET "\n\n", DS_REPO);
   printf("Usage: droidspaces [options] <command> [args]\n\n" C_BOLD
          "Commands:" C_RESET "\n");
   printf("  start                     Start a new container\n");
@@ -24,7 +27,6 @@ void print_usage(void) {
   printf("  show                      List all running containers\n");
   printf("  scan                      Scan for untracked containers\n");
   printf("  check                     Check system requirements\n");
-  printf("  version                   Show version information\n\n");
 
   printf(C_BOLD "Options:" C_RESET "\n");
   printf("  -r, --rootfs=PATH         Path to rootfs directory\n");
@@ -122,7 +124,7 @@ int main(int argc, char **argv) {
   if (strcmp(cmd, "check") == 0)
     return check_requirements_detailed();
   if (strcmp(cmd, "version") == 0) {
-    printf("Droidspaces v%s\n", DS_VERSION);
+    printf("v%s\n", DS_VERSION);
     return 0;
   }
   if (strcmp(cmd, "help") == 0) {
