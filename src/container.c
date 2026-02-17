@@ -64,26 +64,15 @@ int start_rootfs(struct ds_config *cfg) {
     if (generate_container_name(cfg->rootfs_path, cfg->container_name,
                                 sizeof(cfg->container_name)) < 0)
       return -1;
-
-    char final_name[256];
-    if (find_available_name(cfg->container_name, final_name,
-                            sizeof(final_name)) < 0)
-      ds_die("Too many containers running with similar names");
-    safe_strncpy(cfg->container_name, final_name, sizeof(cfg->container_name));
-  } else {
-    /* Explicit name provided, check if it's already in use */
-    char pidfile[PATH_MAX];
-    resolve_pidfile_from_name(cfg->container_name, pidfile, sizeof(pidfile));
-    pid_t pid;
-    if (read_and_validate_pid(pidfile, &pid) == 0) {
-      ds_die("Container name '%s' already in use by PID %d",
-             cfg->container_name, pid);
-    } else if (pid == 0 && access(pidfile, F_OK) == 0) {
-      /* Stale pidfile, remove it and allow this name */
-      unlink(pidfile);
-      remove_mount_path(pidfile);
-    }
   }
+
+  /* Always find an available name starting from the current base (allows
+   * alpine, alpine-1, etc) */
+  char final_name[256];
+  if (find_available_name(cfg->container_name, final_name, sizeof(final_name)) <
+      0)
+    ds_die("Too many containers running with similar names");
+  safe_strncpy(cfg->container_name, final_name, sizeof(cfg->container_name));
 
   /* cfg->hostname remains empty if not defined, letting container decide */
 
