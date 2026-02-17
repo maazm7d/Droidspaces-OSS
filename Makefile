@@ -4,7 +4,9 @@
 BINARY_NAME = droidspaces
 SRC_DIR     = src
 OUT_DIR     = output
-VERSION     = 3.0
+
+# Get version from header
+VERSION := $(shell grep "DS_VERSION" $(SRC_DIR)/droidspace.h | awk '{print $$3}' | tr -d '"')
 
 # Source files
 SRCS = $(SRC_DIR)/main.c \
@@ -19,71 +21,134 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/container.c \
        $(SRC_DIR)/check.c
 
-# Default CC for native builds
-CC ?= gcc
-
-# Auto-detect arch from compiler
-ARCH := $(shell $(CC) -dumpmachine 2>/dev/null | cut -d'-' -f1 | \
-        sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/i686/x86/; \
-             s/armv7l/armhf/; s/^arm/armhf/; s/unknown/x86_64/' || echo "x86_64")
-
 # Compiler flags
 CFLAGS  = -Wall -Wextra -O2 -flto -std=gnu99 -I$(SRC_DIR) -no-pie -pthread
 CFLAGS += -Wno-unused-parameter -Wno-unused-result
 LDFLAGS = -static -no-pie -flto -pthread
 LIBS    = -lutil
 
-# Cross-compiler toolchains (musl)
-CC_x86_64  ?= x86_64-linux-musl-gcc
-CC_aarch64 ?= aarch64-linux-musl-gcc
-CC_armhf   ?= arm-linux-musleabihf-gcc
-CC_x86     ?= i686-linux-musl-gcc
+# Auto-detect architecture from compiler
+ARCH := $(shell $(CC) -dumpmachine 2>/dev/null | cut -d'-' -f1 | \
+        sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/i686/x86/; \
+             s/armv7l/armhf/; s/^arm/armhf/; s/unknown/x86_64/' || echo "x86_64")
 
-# Default target: build for detected arch
-.PHONY: all clean x86_64 aarch64 armhf x86 all-build tarball
+# Cross-compiler helper (from old project)
+HOME_VAR := $(shell echo $$HOME)
+find-cc = $(shell \
+	if [ -n "$(MUSL_CROSS)" ] && [ -f "$(MUSL_CROSS)/$(1)-gcc" ]; then \
+		echo "$(MUSL_CROSS)/$(1)-gcc"; \
+	elif [ -f "$(HOME_VAR)/toolchains/$(1)-cross/bin/$(1)-gcc" ]; then \
+		echo "$(HOME_VAR)/toolchains/$(1)-cross/bin/$(1)-gcc"; \
+	elif command -v $(1)-gcc >/dev/null 2>&1; then \
+		echo "$(1)-gcc"; \
+	elif [ -d "/opt/cross/bin" ] && [ -f "/opt/cross/bin/$(1)-gcc" ]; then \
+		echo "/opt/cross/bin/$(1)-gcc"; \
+	else \
+		echo ""; \
+	fi)
 
-all: $(ARCH)
+.PHONY: all help clean native x86_64 aarch64 armhf x86 all-build tarball all-tarball
+
+all: help
+
+help:
+	@echo "Droidspaces v$(VERSION) Build System"
+	@echo ""
+	@echo "Build for specific architecture:"
+	@echo "  make native    - Build for current architecture using musl-gcc"
+	@echo "  make x86_64    - Build for 64-bit x86"
+	@echo "  make aarch64   - Build for 64-bit ARM"
+	@echo "  make armhf     - Build for 32-bit ARM (hard-float)"
+	@echo "  make x86       - Build for 32-bit x86"
+	@echo ""
+	@echo "Advanced targets:"
+	@echo "  make all-build - Build for all supported architectures"
+	@echo "  make tarball   - Create tarball for current binary"
+	@echo "  make all-tarball - Build all and create unified distribution"
+	@echo ""
+	@echo "Other:"
+	@echo "  make clean     - Remove build artifacts"
 
 $(OUT_DIR):
 	@mkdir -p $(OUT_DIR)
 
-x86_64: $(OUT_DIR)
-	@echo "[*] Building $(BINARY_NAME) v$(VERSION) for x86_64..."
-	@$(CC_x86_64) $(CFLAGS) $(SRCS) -o $(OUT_DIR)/$(BINARY_NAME) $(LDFLAGS) $(LIBS)
-	@strip $(OUT_DIR)/$(BINARY_NAME) 2>/dev/null || true
-	@echo "[+] Built: $(OUT_DIR)/$(BINARY_NAME) (x86_64)"
+# Core build rule
+$(BINARY_NAME): $(OUT_DIR)
+	@echo "[*] Building $(BINARY_NAME) v$(VERSION) ($(ARCH))..."
+	@$(CC) $(CFLAGS) $(SRCS) -o $(OUT_DIR)/$(BINARY_NAME) $(LDFLAGS) $(LIBS)
+	@if [ -z "$(NO_STRIP)" ]; then \
+		STRIP_CMD=$$(echo $(CC) | sed 's/-gcc$$/-strip/; s/gcc$$/strip/'); \
+		if command -v $$STRIP_CMD >/dev/null 2>&1 || [ -f "$$STRIP_CMD" ]; then \
+			$$STRIP_CMD -s $(OUT_DIR)/$(BINARY_NAME) 2>/dev/null && echo "[+] Stripped binary" || true; \
+		fi; \
+	fi
+	@echo "[+] Built: $(OUT_DIR)/$(BINARY_NAME)"
 
-aarch64: $(OUT_DIR)
-	@echo "[*] Building $(BINARY_NAME) v$(VERSION) for aarch64..."
-	@$(CC_aarch64) $(CFLAGS) $(SRCS) -o $(OUT_DIR)/$(BINARY_NAME) $(LDFLAGS) $(LIBS)
-	@strip $(OUT_DIR)/$(BINARY_NAME) 2>/dev/null || true
-	@echo "[+] Built: $(OUT_DIR)/$(BINARY_NAME) (aarch64)"
+# Build targets
+native:
+	@if ! command -v musl-gcc >/dev/null 2>&1; then \
+		echo "Error: musl-gcc not found. Please install musl-devel."; \
+		exit 1; \
+	fi
+	@$(MAKE) $(BINARY_NAME) CC=musl-gcc
 
-armhf: $(OUT_DIR)
-	@echo "[*] Building $(BINARY_NAME) v$(VERSION) for armhf..."
-	@$(CC_armhf) $(CFLAGS) $(SRCS) -o $(OUT_DIR)/$(BINARY_NAME) $(LDFLAGS) $(LIBS)
-	@strip $(OUT_DIR)/$(BINARY_NAME) 2>/dev/null || true
-	@echo "[+] Built: $(OUT_DIR)/$(BINARY_NAME) (armhf)"
+x86_64:
+	@CROSS_CC="$(call find-cc,x86_64-linux-musl)"; \
+	if [ -n "$$CROSS_CC" ]; then $(MAKE) $(BINARY_NAME) CC=$$CROSS_CC; \
+	else echo "Error: x86_64-linux-musl-gcc not found"; exit 1; fi
 
-x86: $(OUT_DIR)
-	@echo "[*] Building $(BINARY_NAME) v$(VERSION) for x86..."
-	@$(CC_x86) $(CFLAGS) $(SRCS) -o $(OUT_DIR)/$(BINARY_NAME) $(LDFLAGS) $(LIBS)
-	@strip $(OUT_DIR)/$(BINARY_NAME) 2>/dev/null || true
-	@echo "[+] Built: $(OUT_DIR)/$(BINARY_NAME) (x86)"
+aarch64:
+	@CROSS_CC="$(call find-cc,aarch64-linux-musl)"; \
+	if [ -n "$$CROSS_CC" ]; then $(MAKE) $(BINARY_NAME) CC=$$CROSS_CC; \
+	else echo "Error: aarch64-linux-musl-gcc not found"; exit 1; fi
+
+armhf:
+	@CROSS_CC="$(call find-cc,arm-linux-musleabihf)"; \
+	if [ -z "$$CROSS_CC" ]; then CROSS_CC="$(call find-cc,armv7l-linux-musleabihf)"; fi; \
+	if [ -n "$$CROSS_CC" ]; then $(MAKE) $(BINARY_NAME) CC=$$CROSS_CC; \
+	else echo "Error: arm-linux-musleabihf-gcc not found"; exit 1; fi
+
+x86:
+	@CROSS_CC="$(call find-cc,i686-linux-musl)"; \
+	if [ -n "$$CROSS_CC" ]; then $(MAKE) $(BINARY_NAME) CC=$$CROSS_CC; \
+	else echo "Error: i686-linux-musl-gcc not found"; exit 1; fi
 
 all-build:
 	@echo "[*] Building for all architectures..."
-	@mkdir -p $(OUT_DIR)
-	@$(MAKE) --no-print-directory x86_64 OUT_DIR=$(OUT_DIR)/x86_64
-	@$(MAKE) --no-print-directory aarch64 OUT_DIR=$(OUT_DIR)/aarch64
-	@$(MAKE) --no-print-directory armhf OUT_DIR=$(OUT_DIR)/armhf
-	@$(MAKE) --no-print-directory x86 OUT_DIR=$(OUT_DIR)/x86
-	@echo "[+] All architectures built successfully"
+	@rm -rf $(OUT_DIR)
+	@$(MAKE) --no-print-directory x86_64 && mv $(OUT_DIR)/$(BINARY_NAME) $(OUT_DIR)/$(BINARY_NAME)-x86_64 || echo "✗ x86_64 failed"
+	@$(MAKE) --no-print-directory aarch64 && mv $(OUT_DIR)/$(BINARY_NAME) $(OUT_DIR)/$(BINARY_NAME)-aarch64 || echo "✗ aarch64 failed"
+	@$(MAKE) --no-print-directory armhf && mv $(OUT_DIR)/$(BINARY_NAME) $(OUT_DIR)/$(BINARY_NAME)-armhf || echo "✗ armhf failed"
+	@$(MAKE) --no-print-directory x86 && mv $(OUT_DIR)/$(BINARY_NAME) $(OUT_DIR)/$(BINARY_NAME)-x86 || echo "✗ x86 failed"
+	@echo "[+] All architectures built successfully in $(OUT_DIR)/"
 
-tarball: all-build
-	@echo "[*] Creating distribution tarball..."
-	@tar czf $(BINARY_NAME)-$(VERSION).tar.gz -C $(OUT_DIR) .
-	@echo "[+] Created: $(BINARY_NAME)-$(VERSION).tar.gz"
+tarball:
+	@if [ ! -f $(OUT_DIR)/$(BINARY_NAME) ]; then \
+		echo "Error: $(OUT_DIR)/$(BINARY_NAME) not found. Build it first."; \
+		exit 1; \
+	fi
+	@DETECTED_ARCH=$$(file $(OUT_DIR)/$(BINARY_NAME) | grep -oP '(x86-64|ARM aarch64|i386|ARM)' | sed 's/x86-64/amd64/; s/ARM aarch64/arm64/; s/i386/x86/; s/ARM/armhf/'); \
+	TARBALL="$(BINARY_NAME)-$$DETECTED_ARCH-static-v$(VERSION).tar.gz"; \
+	echo "[*] Creating $$TARBALL..."; \
+	tar -czf $$TARBALL -C $(OUT_DIR) $(BINARY_NAME); \
+	echo "[+] Created: $$TARBALL ($$(du -h $$TARBALL | cut -f1))"
+
+all-tarball: all-build
+	@DATE=$$(date +%Y-%m-%d); \
+	TARBALL="$(BINARY_NAME)-v$(VERSION)-$$DATE.tar.gz"; \
+	ROOT_DIR="$(BINARY_NAME)-v$(VERSION)"; \
+	TEMP_DIR="/tmp/droidspaces-tarball-$$$$"; \
+	mkdir -p $$TEMP_DIR/$$ROOT_DIR; \
+	for arch in x86_64 aarch64 armhf x86; do \
+		if [ -f $(OUT_DIR)/$(BINARY_NAME)-$$arch ]; then \
+			mkdir -p $$TEMP_DIR/$$ROOT_DIR/$$arch; \
+			cp $(OUT_DIR)/$(BINARY_NAME)-$$arch $$TEMP_DIR/$$ROOT_DIR/$$arch/$(BINARY_NAME); \
+		fi; \
+	done; \
+	echo "[*] Creating unified distribution: $$TARBALL..."; \
+	tar -czf $$TARBALL -C $$TEMP_DIR $$ROOT_DIR; \
+	rm -rf $$TEMP_DIR; \
+	echo "[+] Created: $$TARBALL ($$(du -h $$TARBALL | cut -f1))"
 
 clean:
 	@rm -rf $(OUT_DIR) $(BINARY_NAME)-*.tar.gz
