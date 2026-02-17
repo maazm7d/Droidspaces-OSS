@@ -14,7 +14,8 @@ void print_usage(void) {
          "\n",
          DS_PROJECT_NAME, DS_VERSION);
   printf("by " C_CYAN "%s" C_RESET "\n", DS_AUTHOR);
-  printf("\n" C_BLUE "%s" C_RESET "\n\n", DS_REPO);
+  printf("\n" C_BLUE "%s" C_RESET "\n", DS_REPO);
+  printf(C_DIM "Built on: %s %s" C_RESET "\n\n", __DATE__, __TIME__);
   printf("Usage: droidspaces [options] <command> [args]\n\n" C_BOLD
          "Commands:" C_RESET "\n");
   printf("  start                     Start a new container\n");
