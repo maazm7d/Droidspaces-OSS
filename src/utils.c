@@ -29,6 +29,22 @@ int write_file(const char *path, const char *content) {
   return (w == (ssize_t)len) ? 0 : -1;
 }
 
+ssize_t write_all(int fd, const void *buf, size_t count) {
+  const char *p = buf;
+  size_t remaining = count;
+  while (remaining > 0) {
+    ssize_t w = write(fd, p, remaining);
+    if (w < 0) {
+      if (errno == EINTR)
+        continue;
+      return -1;
+    }
+    p += w;
+    remaining -= (size_t)w;
+  }
+  return (ssize_t)count;
+}
+
 int read_file(const char *path, char *buf, size_t size) {
   int fd = open(path, O_RDONLY);
   if (fd < 0)
@@ -172,44 +188,36 @@ int read_and_validate_pid(const char *pidfile, pid_t *pid_out) {
  * Mount sidecar files (.mount)
  * ---------------------------------------------------------------------------*/
 
+/* Internal helper to convert pidfile path to mount sidecar path: foo.pid ->
+ * foo.mount */
+static void pidfile_to_mountfile(const char *pidfile, char *buf, size_t size) {
+  safe_strncpy(buf, pidfile, size);
+  char *dot = strrchr(buf, '.');
+  if (dot && strcmp(dot, ".pid") == 0) {
+    /* If it ends in .pid, replace it */
+    snprintf(dot, size - (size_t)(dot - buf), ".mount");
+  } else {
+    /* Otherwise just append */
+    strncat(buf, ".mount", size - strlen(buf) - 1);
+  }
+}
+
 /* Save mount path alongside a pidfile: foo.pid -> foo.mount */
 int save_mount_path(const char *pidfile, const char *mount_path) {
   char mpath[PATH_MAX];
-  safe_strncpy(mpath, pidfile, sizeof(mpath));
-
-  /* replace .pid with .mount */
-  char *dot = strrchr(mpath, '.');
-  if (dot)
-    safe_strncpy(dot, ".mount", sizeof(mpath) - (size_t)(dot - mpath));
-  else
-    strncat(mpath, ".mount", sizeof(mpath) - strlen(mpath) - 1);
-
+  pidfile_to_mountfile(pidfile, mpath, sizeof(mpath));
   return write_file(mpath, mount_path);
 }
 
 int read_mount_path(const char *pidfile, char *buf, size_t size) {
   char mpath[PATH_MAX];
-  safe_strncpy(mpath, pidfile, sizeof(mpath));
-
-  char *dot = strrchr(mpath, '.');
-  if (dot)
-    safe_strncpy(dot, ".mount", sizeof(mpath) - (size_t)(dot - mpath));
-  else
-    strncat(mpath, ".mount", sizeof(mpath) - strlen(mpath) - 1);
-
+  pidfile_to_mountfile(pidfile, mpath, sizeof(mpath));
   return read_file(mpath, buf, size);
 }
 
 int remove_mount_path(const char *pidfile) {
   char mpath[PATH_MAX];
-  safe_strncpy(mpath, pidfile, sizeof(mpath));
-
-  char *dot = strrchr(mpath, '.');
-  if (dot)
-    safe_strncpy(dot, ".mount", sizeof(mpath) - (size_t)(dot - mpath));
-  else
-    strncat(mpath, ".mount", sizeof(mpath) - strlen(mpath) - 1);
-
+  pidfile_to_mountfile(pidfile, mpath, sizeof(mpath));
   return unlink(mpath);
 }
 

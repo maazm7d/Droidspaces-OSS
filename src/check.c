@@ -84,11 +84,14 @@ int check_requirements(void) {
  * Detailed 'check' command
  * ---------------------------------------------------------------------------*/
 
-typedef struct {
-  const char *name;
-  const char *desc;
-  int status;
-} ds_check_t;
+/* Helper to check and close an FD-based feature probe */
+static int check_fd_feature(int fd) {
+  if (fd >= 0) {
+    close(fd);
+    return 1;
+  }
+  return 0;
+}
 
 void print_ds_check(const char *name, const char *desc, int status,
                     const char *level) {
@@ -156,12 +159,12 @@ int check_requirements_detailed(void) {
          "required:\n\n");
 
   print_ds_check("epoll support", "Efficient I/O event notification",
-                 epoll_create(1) >= 0, "OPT");
+                 check_fd_feature(epoll_create(1)), "OPT");
 
   sigset_t mask;
   sigemptyset(&mask);
   print_ds_check("signalfd support", "Signal handling via file descriptors",
-                 signalfd(-1, &mask, 0) >= 0, "OPT");
+                 check_fd_feature(signalfd(-1, &mask, 0)), "OPT");
 
   print_ds_check("PTY support", "Unix98 PTY support",
                  access("/dev/ptmx", F_OK) == 0, "OPT");

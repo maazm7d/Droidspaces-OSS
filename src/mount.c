@@ -15,7 +15,7 @@ static int is_mountpoint(const char *path) {
     return 0;
 
   char parent[PATH_MAX];
-  snprintf(parent, sizeof(parent), "%s/..", path);
+  snprintf(parent, sizeof(parent), "%.4092s/..", path);
   if (stat(parent, &st2) < 0)
     return 0;
 
@@ -107,7 +107,7 @@ int setup_dev(const char *rootfs, int hw_access) {
                                  "random",  "urandom", "ptmx", NULL};
       for (int i = 0; conflicts[i]; i++) {
         char path[PATH_MAX];
-        snprintf(path, sizeof(path), "%s/%s", dev_path, conflicts[i]);
+        snprintf(path, sizeof(path), "%.4080s/%s", dev_path, conflicts[i]);
         /* Unmount if it was somehow bind-mounted */
         umount2(path, MNT_DETACH);
         unlink(path);
@@ -301,14 +301,15 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size) {
   ds_log("Mounting rootfs image %s on %s...", img_path, mount_point);
 
   /* Run e2fsck first if it's an ext image */
-  char *e2fsck_argv[] = {"e2fsck", "-f", "-y", (char *)img_path, NULL};
+  char *e2fsck_argv[] = {"e2fsck", "-f", "-y", (char *)(uintptr_t)img_path,
+                         NULL};
   if (run_command_quiet(e2fsck_argv) == 0) {
     ds_log("Image checked and repaired successfully.");
   }
 
   /* Mount via loop device */
-  char *mount_argv[] = {"mount",          "-o",        "loop",
-                        (char *)img_path, mount_point, NULL};
+  char *mount_argv[] = {"mount",     "-o", "loop", (char *)(uintptr_t)img_path,
+                        mount_point, NULL};
   if (run_command_quiet(mount_argv) != 0) {
     ds_error("Failed to mount image %s", img_path);
     return -1;
@@ -324,7 +325,8 @@ int unmount_rootfs_img(const char *mount_point) {
   /* Try unmounting: prefer aggressive lazy unmount syscall first */
   if (umount2(mount_point, MNT_DETACH) < 0) {
     /* Fallback to standard umount via shell with loop detach flag */
-    char *umount_argv[] = {"umount", "-d", "-l", (char *)mount_point, NULL};
+    char *umount_argv[] = {"umount", "-d", "-l", (char *)(uintptr_t)mount_point,
+                           NULL};
     run_command_quiet(umount_argv);
   }
 

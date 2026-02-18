@@ -41,17 +41,20 @@ int console_monitor_loop(int master_fd, pid_t intermediate_pid,
   /* 1. Watch user stdin */
   ev.events = EPOLLIN;
   ev.data.fd = STDIN_FILENO;
-  epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, STDIN_FILENO, &ev) < 0)
+    ds_warn("epoll_ctl(stdin) failed: %s", strerror(errno));
 
   /* 2. Watch PTY master */
   ev.events = EPOLLIN | EPOLLHUP | EPOLLERR;
   ev.data.fd = master_fd;
-  epoll_ctl(epfd, EPOLL_CTL_ADD, master_fd, &ev);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, master_fd, &ev) < 0)
+    ds_warn("epoll_ctl(master_fd) failed: %s", strerror(errno));
 
   /* 3. Watch signalfd */
   ev.events = EPOLLIN;
   ev.data.fd = sfd;
-  epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev) < 0)
+    ds_warn("epoll_ctl(sig_fd) failed: %s", strerror(errno));
 
   /* Set terminal to raw mode */
   struct termios oldtios;
@@ -83,7 +86,7 @@ int console_monitor_loop(int master_fd, pid_t intermediate_pid,
         /* User input -> Container master */
         n = read(STDIN_FILENO, buf, sizeof(buf));
         if (n > 0) {
-          write(master_fd, buf, n);
+          write_all(master_fd, buf, (size_t)n);
         } else if (n == 0) {
           /* EOF on stdin */
           // we might want to continue seeing output
@@ -96,7 +99,7 @@ int console_monitor_loop(int master_fd, pid_t intermediate_pid,
         }
         n = read(master_fd, buf, sizeof(buf));
         if (n > 0) {
-          write(STDOUT_FILENO, buf, n);
+          write_all(STDOUT_FILENO, buf, (size_t)n);
         } else {
           running = 0;
         }
@@ -118,7 +121,7 @@ int console_monitor_loop(int master_fd, pid_t intermediate_pid,
             ioctl(master_fd, TIOCSWINSZ, &ws);
         } else if (fdsi.ssi_signo == SIGINT || fdsi.ssi_signo == SIGTERM) {
           /* Forward to container init */
-          kill(container_pid, fdsi.ssi_signo);
+          kill(container_pid, (int)fdsi.ssi_signo);
         }
       }
     }

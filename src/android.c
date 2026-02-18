@@ -115,9 +115,39 @@ int android_fill_dns_from_props(char *dns1, char *dns2, size_t size) {
     return -1;
 
   dns1[0] = dns2[0] = '\0';
-  FILE *fp = popen("getprop", "r");
-  if (!fp)
+
+  /* Use fork+exec instead of popen to avoid shell injection */
+  int pipefd[2];
+  if (pipe(pipefd) < 0)
     return -1;
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    close(pipefd[0]);
+    dup2(pipefd[1], STDOUT_FILENO);
+    close(pipefd[1]);
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull >= 0) {
+      dup2(devnull, STDERR_FILENO);
+      close(devnull);
+    }
+    execlp("getprop", "getprop", (char *)NULL);
+    _exit(127);
+  }
+
+  close(pipefd[1]);
+  FILE *fp = fdopen(pipefd[0], "r");
+  if (!fp) {
+    close(pipefd[0]);
+    waitpid(pid, NULL, 0);
+    return -1;
+  }
 
   char line[512];
   while (fgets(line, sizeof(line), fp)) {
@@ -145,7 +175,8 @@ int android_fill_dns_from_props(char *dns1, char *dns2, size_t size) {
       break; /* Found both */
     }
   }
-  pclose(fp);
+  fclose(fp);
+  waitpid(pid, NULL, 0);
 
   return (dns1[0]) ? 0 : -1;
 }
@@ -180,19 +211,6 @@ void android_configure_iptables(void) {
       "udp",      "-d", "127.0.0.1", "-m",         "udp",     "--dport",
       "1:65535",  "-j", "REDIRECT",  "--to-ports", "1-65535", NULL};
   run_command_quiet(args_red_udp);
-}
-
-void android_setup_paranoid_network_groups(void) {
-  if (!is_android())
-    return;
-
-  /* Android's "Paranoid Network" (CONFIG_ANDROID_PARANOID_NETWORK)
-   * requires specific GIDs to access internet.
-   * AID_INET (3003), AID_NET_RAW (3004), AID_NET_ADMIN (3005) */
-
-  /* This is usually handled by adding the user to these groups inside the
-   * rootfs. We can do it broadly for the process here if needed, but it's
-   * better to use 'fix_networking_rootfs' to ensure /etc/group is correct. */
 }
 
 /* ---------------------------------------------------------------------------

@@ -5,11 +5,54 @@
 #include "droidspace.h"
 
 /* ---------------------------------------------------------------------------
- * Introspection
+ * Cleanup
  * ---------------------------------------------------------------------------*/
 
 static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
-                                        int skip_unmount);
+                                        int skip_unmount) {
+  /* Flush filesystem buffers */
+  sync();
+
+  if (is_android())
+    android_optimizations(0);
+
+  /* 1. Cleanup firmware path */
+  if (cfg->rootfs_path[0]) {
+    firmware_path_remove_rootfs(cfg->rootfs_path);
+  } else if (pid > 0) {
+    char rootfs[PATH_MAX];
+    char root_link[PATH_MAX];
+    snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
+    ssize_t rlen = readlink(root_link, rootfs, sizeof(rootfs) - 1);
+    if (rlen > 0) {
+      rootfs[rlen] = '\0'; /* readlink does NOT null-terminate */
+      firmware_path_remove_rootfs(rootfs);
+    }
+  }
+
+  /* 2. Resolve global PID file path */
+  char global_pidfile[PATH_MAX];
+  resolve_pidfile_from_name(cfg->container_name, global_pidfile,
+                            sizeof(global_pidfile));
+
+  /* 3. Handle rootfs image unmount */
+  char mount_point[PATH_MAX];
+  if (read_mount_path(cfg->pidfile, mount_point, sizeof(mount_point)) > 0) {
+    if (!skip_unmount)
+      unmount_rootfs_img(mount_point);
+  }
+
+  /* 4. Remove tracking info and unlink PID files */
+  remove_mount_path(cfg->pidfile);
+  if (cfg->pidfile[0])
+    unlink(cfg->pidfile);
+  if (strcmp(cfg->pidfile, global_pidfile) != 0)
+    unlink(global_pidfile);
+}
+
+/* ---------------------------------------------------------------------------
+ * Introspection
+ * ---------------------------------------------------------------------------*/
 
 int is_valid_container_pid(pid_t pid) {
   char path[PATH_MAX];
@@ -134,9 +177,8 @@ int start_rootfs(struct ds_config *cfg) {
     if (init_pid == 0) {
       /* CONTAINER INIT */
       close(sync_pipe[1]);
-      /* Redirect stdio to /dev/null for background mode in init if needed,
-       * but internal_boot will handle its own stdfds. */
-      exit(internal_boot(cfg, -1));
+      /* internal_boot will handle its own stdfds. */
+      exit(internal_boot(cfg));
     }
 
     /* Write child PID to sync pipe so parent knows it */
@@ -240,49 +282,6 @@ int start_rootfs(struct ds_config *cfg) {
   }
 
   return 0;
-}
-
-/* ---------------------------------------------------------------------------
- * Stop
- * ---------------------------------------------------------------------------*/
-
-void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
-                                 int skip_unmount) {
-  /* Flush filesystem buffers */
-  sync();
-
-  if (is_android())
-    android_optimizations(0);
-
-  /* 1. Cleanup firmware path if it was added */
-  if (cfg->rootfs_path[0]) {
-    firmware_path_remove_rootfs(cfg->rootfs_path);
-  } else if (pid > 0) {
-    char rootfs[PATH_MAX];
-    char root_link[PATH_MAX];
-    snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
-    if (readlink(root_link, rootfs, sizeof(rootfs) - 1) > 0)
-      firmware_path_remove_rootfs(rootfs);
-  }
-
-  /* 2. Resolve global PID file path */
-  char global_pidfile[PATH_MAX];
-  resolve_pidfile_from_name(cfg->container_name, global_pidfile,
-                            sizeof(global_pidfile));
-
-  /* 3. Handle rootfs image unmount */
-  char mount_point[PATH_MAX];
-  if (read_mount_path(cfg->pidfile, mount_point, sizeof(mount_point)) > 0) {
-    if (!skip_unmount)
-      unmount_rootfs_img(mount_point);
-  }
-
-  /* 4. Remove tracking info and unlink PID files */
-  remove_mount_path(cfg->pidfile);
-  if (cfg->pidfile[0])
-    unlink(cfg->pidfile);
-  if (strcmp(cfg->pidfile, global_pidfile) != 0)
-    unlink(global_pidfile);
 }
 
 int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
@@ -423,49 +422,14 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
       if (chdir("/") < 0)
         exit(EXIT_FAILURE);
 
-      /* Clear host environment and set clean container defaults */
-      clearenv();
-      setenv("PATH",
-             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
-      setenv("TERM", "xterm-256color", 1);
-      setenv("HOME", "/root", 1);
-      setenv("container", "droidspaces", 1);
+      setup_container_env();
       setenv("LANG", "C.UTF-8", 1);
-
-      /* Source /etc/environment if available */
-      FILE *envf = fopen("/etc/environment", "r");
-      if (envf) {
-        char line[512];
-        while (fgets(line, sizeof(line), envf)) {
-          /* Strip newline */
-          char *nl = strchr(line, '\n');
-          if (nl)
-            *nl = '\0';
-          /* Skip comments and empty lines */
-          if (line[0] == '#' || line[0] == '\0')
-            continue;
-          /* Parse KEY=VALUE */
-          char *eq = strchr(line, '=');
-          if (eq) {
-            *eq = '\0';
-            char *val = eq + 1;
-            /* Strip quotes */
-            size_t vlen = strlen(val);
-            if (vlen >= 2 && ((val[0] == '"' && val[vlen - 1] == '"') ||
-                              (val[0] == '\'' && val[vlen - 1] == '\''))) {
-              val[vlen - 1] = '\0';
-              val++;
-            }
-            setenv(line, val, 1);
-          }
-        }
-        fclose(envf);
-      }
+      load_etc_environment();
 
       extern char **environ;
 
       if (user && user[0]) {
-        char *shell_argv[] = {"su", "-l", (char *)user, NULL};
+        char *shell_argv[] = {"su", "-l", (char *)(uintptr_t)user, NULL};
         execve("/bin/su", shell_argv, environ);
         execve("/usr/bin/su", shell_argv, environ);
       }
@@ -476,7 +440,7 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
         if (access(shells[i], X_OK) == 0) {
           const char *sh_name = strrchr(shells[i], '/');
           sh_name = sh_name ? sh_name + 1 : shells[i];
-          char *shell_argv[] = {(char *)sh_name, "-l", NULL};
+          char *shell_argv[] = {(char *)(uintptr_t)sh_name, "-l", NULL};
           execve(shells[i], shell_argv, environ);
         }
       }
@@ -492,8 +456,8 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
   return 0;
 }
 
-int run_in_rootfs(struct ds_config *cfg, int argc __attribute__((unused)),
-                  char **argv) {
+int run_in_rootfs(struct ds_config *cfg, int argc, char **argv) {
+  (void)argc;
   pid_t pid;
   if (check_status(cfg, &pid) < 0)
     return -1;
@@ -513,39 +477,8 @@ int run_in_rootfs(struct ds_config *cfg, int argc __attribute__((unused)),
       if (chdir("/") < 0)
         exit(EXIT_FAILURE);
 
-      /* Clean environment for the command */
-      clearenv();
-      setenv("PATH",
-             "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
-      setenv("TERM", "xterm-256color", 1);
-      setenv("HOME", "/root", 1);
-      setenv("container", "droidspaces", 1);
-
-      /* Source /etc/environment if available */
-      FILE *envf = fopen("/etc/environment", "r");
-      if (envf) {
-        char line[512];
-        while (fgets(line, sizeof(line), envf)) {
-          char *nl = strchr(line, '\n');
-          if (nl)
-            *nl = '\0';
-          if (line[0] == '#' || line[0] == '\0')
-            continue;
-          char *eq = strchr(line, '=');
-          if (eq) {
-            *eq = '\0';
-            char *val = eq + 1;
-            size_t vlen = strlen(val);
-            if (vlen >= 2 && ((val[0] == '"' && val[vlen - 1] == '"') ||
-                              (val[0] == '\'' && val[vlen - 1] == '\''))) {
-              val[vlen - 1] = '\0';
-              val++;
-            }
-            setenv(line, val, 1);
-          }
-        }
-        fclose(envf);
-      }
+      setup_container_env();
+      load_etc_environment();
 
       /* If single argument with spaces, run via /bin/sh -c */
       if (argv[1] == NULL && strchr(argv[0], ' ') != NULL) {
@@ -622,6 +555,36 @@ static void get_container_os_pretty(pid_t pid, char *buf, size_t size) {
   fclose(fp);
 }
 
+static void get_os_pretty_from_path(const char *osrelease_path, char *buf,
+                                    size_t size) {
+  if (!buf || size == 0)
+    return;
+  buf[0] = '\0';
+
+  FILE *fp = fopen(osrelease_path, "r");
+  if (!fp)
+    return;
+
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
+      char *val = line + 12;
+      size_t len = strlen(val);
+      while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '"'))
+        val[--len] = '\0';
+      if (val[0] == '"') {
+        val++;
+        len--;
+      }
+      if (len >= size)
+        len = size - 1;
+      snprintf(buf, size, "%.*s", (int)len, val);
+      break;
+    }
+  }
+  fclose(fp);
+}
+
 int show_info(struct ds_config *cfg) {
   /* Host info */
   const char *host = is_android() ? "Android" : "Linux";
@@ -675,27 +638,13 @@ int show_info(struct ds_config *cfg) {
 
     /* Best effort: read os-release from rootfs path */
     if (cfg->rootfs_path[0]) {
-      char path[PATH_MAX];
-      snprintf(path, sizeof(path), "%s/etc/os-release", cfg->rootfs_path);
-      FILE *fp = fopen(path, "r");
-      if (fp) {
-        char line[512];
-        while (fgets(line, sizeof(line), fp)) {
-          if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
-            char *val = line + 12;
-            size_t len = strlen(val);
-            while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '"'))
-              val[--len] = '\0';
-            if (val[0] == '"') {
-              val++;
-              len--;
-            }
-            printf("  Rootfs OS: %.*s\n\n", (int)len, val);
-            break;
-          }
-        }
-        fclose(fp);
-      }
+      char osr_path[PATH_MAX];
+      snprintf(osr_path, sizeof(osr_path), "%.4070s/etc/os-release",
+               cfg->rootfs_path);
+      char pretty[256];
+      get_os_pretty_from_path(osr_path, pretty, sizeof(pretty));
+      if (pretty[0])
+        printf("  Rootfs OS: %s\n\n", pretty);
     }
   }
 

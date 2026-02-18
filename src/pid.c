@@ -132,8 +132,8 @@ int resolve_pidfile_from_name(const char *name, char *pidfile, size_t size) {
   if (strlen(dir) + strlen(name) + 6 >= size) // +6 for "/.pid\0"
     return -1;
 
-  snprintf(pidfile, size, "%s/%s.pid", dir, name);
-  return 0;
+  int r = snprintf(pidfile, size, "%.4070s/%.20s.pid", dir, name);
+  return (r > 0 && (size_t)r < size) ? 0 : -1;
 }
 
 int auto_resolve_pidfile(struct ds_config *cfg) {
@@ -170,8 +170,8 @@ int auto_resolve_pidfile(struct ds_config *cfg) {
     if (is_pid_file(ent->d_name)) {
       char path[PATH_MAX];
       const char *pids_dir = get_pids_dir();
-      if (snprintf(path, sizeof(path), "%s/%s", pids_dir, ent->d_name) >=
-          (int)sizeof(path))
+      if (snprintf(path, sizeof(path), "%.4070s/%.24s", pids_dir,
+                   ent->d_name) >= (int)sizeof(path))
         continue;
 
       pid_t pid;
@@ -277,7 +277,9 @@ int show_containers(void) {
       continue;
 
     char pidfile[PATH_MAX];
-    snprintf(pidfile, sizeof(pidfile), "%s/%s", get_pids_dir(), ent->d_name);
+    if (snprintf(pidfile, sizeof(pidfile), "%.4070s/%.24s", get_pids_dir(),
+                 ent->d_name) >= (int)sizeof(pidfile))
+      continue;
 
     pid_t pid;
     if (read_and_validate_pid(pidfile, &pid) == 0) {
@@ -380,7 +382,9 @@ int scan_containers(void) {
       if (!is_pid_file(ent->d_name))
         continue;
       char pf[PATH_MAX];
-      snprintf(pf, sizeof(pf), "%s/%s", get_pids_dir(), ent->d_name);
+      if (snprintf(pf, sizeof(pf), "%.4070s/%.24s", get_pids_dir(),
+                   ent->d_name) >= (int)sizeof(pf))
+        continue;
       pid_t p;
       if (read_and_validate_pid(pf, &p) == 0) {
         tracked[tracked_count++] = p;

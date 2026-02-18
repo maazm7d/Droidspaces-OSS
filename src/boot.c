@@ -4,8 +4,7 @@
 
 #include "droidspace.h"
 
-int internal_boot(struct ds_config *cfg, int sock_fd) {
-  (void)sock_fd; /* No longer used */
+int internal_boot(struct ds_config *cfg) {
 
   /* 1. Isolated mount namespace */
   if (unshare(CLONE_NEWNS) < 0)
@@ -102,7 +101,7 @@ int internal_boot(struct ds_config *cfg, int sock_fd) {
     android_setup_storage(".");
   }
 
-  /* 12. PIXOT_ROOT */
+  /* 12. PIVOT_ROOT */
   if (syscall(SYS_pivot_root, ".", ".old_root") < 0)
     ds_die("pivot_root failed: %s", strerror(errno));
 
@@ -126,17 +125,7 @@ int internal_boot(struct ds_config *cfg, int sock_fd) {
   write_file("/run/systemd/container", "droidspaces");
 
   /* 18. Clear environment and set container defaults */
-  clearenv();
-  setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-         1);
-  setenv("TERM", getenv("TERM") ? getenv("TERM") : "xterm-256color", 1);
-  setenv("HOME", "/root", 1);
-  setenv("container", "droidspaces", 1);
-
-  char ttys_str[256];
-  build_container_ttys_string(cfg->ttys, cfg->tty_count, ttys_str,
-                              sizeof(ttys_str));
-  setenv("container_ttys", ttys_str, 1);
+  ds_env_boot_setup(cfg);
 
   /* 19. Redirect standard I/O to /dev/console */
   int console_fd = open("/dev/console", O_RDWR);

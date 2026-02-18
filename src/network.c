@@ -48,7 +48,8 @@ int fix_networking_host(struct ds_config *cfg) {
 
   /* Save DNS to temp file in rootfs for use after pivot_root */
   char dns_path[PATH_MAX];
-  snprintf(dns_path, sizeof(dns_path), "%s/.dns_servers", cfg->rootfs_path);
+  snprintf(dns_path, sizeof(dns_path), "%.4080s/.dns_servers",
+           cfg->rootfs_path);
   FILE *dns_fp = fopen(dns_path, "w");
   if (dns_fp) {
     if (dns2[0])
@@ -78,8 +79,8 @@ int fix_networking_rootfs(struct ds_config *cfg) {
               strerror(errno));
     }
     /* Persist to /etc/hostname */
-    char hn_buf[128];
-    snprintf(hn_buf, sizeof(hn_buf), "%s\n", cfg->hostname);
+    char hn_buf[256 + 2];
+    snprintf(hn_buf, sizeof(hn_buf), "%.256s\n", cfg->hostname);
     write_file("/etc/hostname", hn_buf);
   }
 
@@ -88,7 +89,7 @@ int fix_networking_rootfs(struct ds_config *cfg) {
   snprintf(hosts_content, sizeof(hosts_content),
            "127.0.0.1\tlocalhost\n"
            "::1\t\tlocalhost ip6-localhost ip6-loopback\n"
-           "127.0.1.1\t%s\n",
+           "127.0.1.1\t%.256s\n",
            cfg->hostname);
   write_file("/etc/hosts", hosts_content);
 
@@ -97,11 +98,12 @@ int fix_networking_rootfs(struct ds_config *cfg) {
   FILE *dns_fp = fopen("/.old_root/.dns_servers", "r");
   if (dns_fp) {
     char buf[512];
-    size_t n = fread(buf, 1, sizeof(buf), dns_fp);
+    size_t n = fread(buf, 1, sizeof(buf) - 1, dns_fp);
+    fclose(dns_fp);
     if (n > 0) {
+      buf[n] = '\0'; /* Ensure null-termination */
       write_file("/run/resolvconf/resolv.conf", buf);
     }
-    fclose(dns_fp);
   } else {
     /* Fallback/Linux default */
     write_file("/run/resolvconf/resolv.conf",

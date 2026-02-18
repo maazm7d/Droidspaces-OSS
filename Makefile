@@ -19,11 +19,14 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/pid.c \
        $(SRC_DIR)/boot.c \
        $(SRC_DIR)/container.c \
+       $(SRC_DIR)/environment.c \
        $(SRC_DIR)/check.c
 
-# Compiler flags
-CFLAGS  = -Wall -Wextra -O2 -flto -std=gnu99 -I$(SRC_DIR) -no-pie -pthread
-CFLAGS += -Wno-unused-parameter -Wno-unused-result
+# Compiler flags — hardened warning set, all warnings are errors
+CFLAGS  = -Wall -Wextra -Wpedantic -Werror -O2 -flto -std=gnu99 -I$(SRC_DIR) -no-pie -pthread
+CFLAGS += -Wformat=2 -Wformat-security -Wformat-overflow=2 -Wformat-truncation=2
+CFLAGS += -Wnull-dereference -Wcast-qual -Wlogical-op
+CFLAGS += -Wduplicated-cond -Wduplicated-branches -Wimplicit-fallthrough=3
 LDFLAGS = -static -no-pie -flto -pthread
 LIBS    = -lutil
 

@@ -155,6 +155,7 @@ struct ds_config {
 void safe_strncpy(char *dst, const char *src, size_t size);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
+ssize_t write_all(int fd, const void *buf, size_t count);
 int generate_uuid(char *buf, size_t size);
 int collect_pids(pid_t **pids_out, size_t *count_out);
 int build_proc_root_path(pid_t pid, const char *suffix, char *buf, size_t size);
@@ -214,8 +215,6 @@ int detect_ipv6_in_container(pid_t pid);
  * ---------------------------------------------------------------------------*/
 
 int ds_terminal_create(struct ds_tty_info *tty);
-int ds_terminal_setup_console(struct ds_tty_info *console);
-int ds_terminal_setup_ttys(struct ds_tty_info *ttys, int count);
 int ds_terminal_set_stdfds(int fd);
 int ds_terminal_make_controlling(int fd);
 int ds_setup_tios(int fd, struct termios *old);
@@ -249,7 +248,15 @@ int scan_containers(void);
  * boot.c
  * ---------------------------------------------------------------------------*/
 
-int internal_boot(struct ds_config *cfg, int sock_fd);
+int internal_boot(struct ds_config *cfg);
+
+/* ---------------------------------------------------------------------------
+ * environment.c
+ * ---------------------------------------------------------------------------*/
+
+void setup_container_env(void);
+void load_etc_environment(void);
+void ds_env_boot_setup(struct ds_config *cfg);
 
 /* ---------------------------------------------------------------------------
  * container.c
