@@ -76,8 +76,8 @@ int main(int argc, char **argv) {
       {0, 0, 0, 0}};
 
   int opt;
-  while ((opt = getopt_long(argc, argv, "r:i:n:p:h:fv", long_options, NULL)) !=
-         -1) {
+  while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:fHISPv", long_options,
+                            NULL)) != -1) {
     switch (opt) {
     case 'r':
       safe_strncpy(cfg.rootfs_path, optarg, sizeof(cfg.rootfs_path));
@@ -112,12 +112,18 @@ int main(int argc, char **argv) {
     case 'v':
       print_usage();
       return 0;
+    case '?':
+      /* getopt_long already printed an error message */
+      fprintf(stderr, "\n");
+      print_usage();
+      return 1;
     default:
       return 1;
     }
   }
 
   if (optind >= argc) {
+    ds_error("Missing command (e.g., start, stop, enter, show)");
     print_usage();
     return 1;
   }
@@ -217,13 +223,17 @@ int main(int argc, char **argv) {
     return show_info(&cfg);
 
   if (strcmp(cmd, "enter") == 0) {
+    /* Optional: we could validate container exists here,
+     * but enter_rootfs already does it. */
     const char *user = (optind + 1 < argc) ? argv[optind + 1] : NULL;
     return enter_rootfs(&cfg, user);
   }
 
   if (strcmp(cmd, "run") == 0) {
-    if (optind + 1 >= argc)
-      ds_die("Command required for 'run'");
+    if (optind + 1 >= argc) {
+      ds_error("Command required for 'run' (e.g., run ls -l)");
+      return 1;
+    }
     return run_in_rootfs(&cfg, argc - (optind + 1), argv + (optind + 1));
   }
 
