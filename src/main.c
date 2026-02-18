@@ -75,6 +75,9 @@ int main(int argc, char **argv) {
       {"help", no_argument, 0, 'v'},
       {0, 0, 0, 0}};
 
+  extern int opterr;
+  opterr = 0;
+
   int opt;
   while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:fHISPv", long_options,
                             NULL)) != -1) {
@@ -113,8 +116,10 @@ int main(int argc, char **argv) {
       print_usage();
       return 0;
     case '?':
-      /* getopt_long already printed an error message */
-      fprintf(stderr, "\n");
+      if (optopt)
+        ds_error("Unrecognized option: -%c", optopt);
+      else
+        ds_error("Unrecognized option: %s", argv[optind - 1]);
       print_usage();
       return 1;
     default:
