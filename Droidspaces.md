@@ -6,9 +6,9 @@
 
 Droidspaces is a lightweight, zero-virtualization container runtime designed to run full Linux distributions (Ubuntu, Alpine, etc.) with systemd or openrc as PID 1, natively on Android devices. It achieves process isolation through Linux PID, IPC, MNT, and UTS namespaces — the same kernel primitives used by Docker and LXC — but targets the constrained and idiosyncratic Android kernel environment where many standard container tools refuse to operate.
 
-This document is a complete internal architecture reference, written by a kernel engineer who has fully internalized the Droidspaces codebase. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
+This document is a complete internal architecture reference for **Droidspaces v3.1.1**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
 
-The codebase is roughly **4,700 lines of C** across 16 `.c` files and 3 headers, compiled as a single static binary against musl libc.
+The codebase is approximately **3,100 lines of C** across 11 `.c` files and 1 master header, compiled as a single static binary against musl libc.
 
 ---
 
@@ -28,17 +28,15 @@ Droidspaces takes a Linux rootfs directory (or ext4 image) and boots it inside a
 
 - **No user namespace.** The container runs as root from the host kernel's perspective. This is deliberate — Android kernels often lack user namespace support, and Droidspaces requires root anyway.
 - **No network namespace.** The container shares the host's network stack. This simplifies setup enormously but means no per-container firewall rules via network namespaces.
-- **No cgroup isolation.** The code creates some cgroup mount points for systemd compatibility, but does not actually constrain CPU, memory, or I/O.
+- **No cgroup isolation.** The code creates cgroup mount points for systemd compatibility (both v1 and v2), but does not actually constrain CPU, memory, or I/O.
 
 ### 1.3 Source Structure
 
 ```
 src/
-├── droidspace.h        Main header — all structs, globals, prototypes
-├── parallel.h          Thread worker context structs
-├── thread_pool.h       Thread pool API
+├── droidspace.h        Master header — all structs, constants, prototypes
 ├── main.c              CLI parsing, command dispatch
-├── container.c         start/stop/enter/run/info/show commands
+├── container.c         start/stop/enter/run/info/show/restart commands
 ├── boot.c              internal_boot() — the PID 1 boot sequence
 ├── mount.c             Mount helpers, /dev setup, rootfs.img handling
 ├── console.c           epoll-based console I/O monitor loop
@@ -47,13 +45,16 @@ src/
 ├── android.c           Android-specific: SELinux, optimizations, storage
 ├── utils.c             File I/O, UUID generation, firmware path mgmt
 ├── pid.c               PID file management, workspace, container naming
-├── container_env.c     Environment variable setup for container
-├── fd_passing.c        SCM_RIGHTS FD passing over Unix sockets
-├── parallel.c          Worker functions for parallel scanning/checking
-├── thread_pool.c       pthread-based thread pool implementation
-├── check.c             System requirements checker
-└── documentation.c     Interactive docs viewer
+└── check.c             System requirements checker
 ```
+
+**Key architectural changes from v2:**
+- The `struct ds_config` replaces all global variables — every function receives its configuration explicitly
+- PTYs are allocated in the **parent** process before fork (LXC model) — no SCM_RIGHTS FD passing
+- `enter_namespace()` is factored out as a shared helper for both `enter` and `run` commands
+- Thread pool eliminated — all checks and scans run serially (the overhead was larger than the benefit)
+- Stop uses `SIGRTMIN+3` for systemd shutdown (not `system("poweroff")`)
+- The `[ds-monitor]` daemon uses `waitpid()` instead of `kill(pid, 0)` polling
 
 ---
 
@@ -65,24 +66,24 @@ Droidspaces performs a formal requirements check via the `check` command (implem
 
 | Requirement | How It's Checked | Why |
 |---|---|---|
-| Root privileges | `geteuid() == 0` | Namespace creation and mount operations require CAP_SYS_ADMIN |
-| PID namespace | `unshare(CLONE_NEWPID)` succeeds | Container PID isolation |
-| Mount namespace | `unshare(CLONE_NEWNS)` succeeds | Filesystem isolation |
-| UTS namespace | `unshare(CLONE_NEWUTS)` succeeds | Hostname isolation |
-| IPC namespace | `unshare(CLONE_NEWIPC)` succeeds | IPC isolation |
-| devtmpfs | grep `/proc/filesystems` | Device node creation |
-| cgroup devices | grep `/proc/cgroups` | systemd requires this |
-| `pivot_root` syscall | `syscall(SYS_pivot_root, "/", "/")` returns `EINVAL` not `ENOSYS` | Root filesystem switching |
+| Root privileges | `getuid() == 0` | Namespace creation and mount operations require CAP_SYS_ADMIN |
+| PID namespace | `access("/proc/self/ns/pid", F_OK) && is_root` | Container PID isolation |
+| Mount namespace | `access("/proc/self/ns/mnt", F_OK) && is_root` | Filesystem isolation |
+| UTS namespace | `access("/proc/self/ns/uts", F_OK) && is_root` | Hostname isolation |
+| IPC namespace | `access("/proc/self/ns/ipc", F_OK) && is_root` | IPC isolation |
+| devtmpfs | `access("/dev/null", F_OK)` | Device node creation |
+| cgroup support | `access("/sys/fs/cgroup/devices", F_OK) \|\| access("/sys/fs/cgroup/cgroup.controllers", F_OK) \|\| grep_file("/proc/mounts", "cgroup2")` | systemd requires this (v1 or v2) |
+| `pivot_root` syscall | `statfs("/", &st)` — not RAMFS_MAGIC | Root filesystem switching |
 | `/proc` and `/sys` | `access()` check | Essential virtual filesystems |
 
 ### Recommended
 
-epoll, signalfd, PTY/devpts support, loop device, ext4 — all tested in parallel via thread pool.
+epoll, signalfd, PTY/devpts support, loop device, ext4 — all tested serially in `check_requirements_detailed()`.
 
 ### Assumptions
 
 - The binary is compiled statically against musl libc (no glibc dependency)
-- The host is Android (detected via `/system/build.prop` or `ANDROID_ROOT` env var)
+- The host is Android (detected via `ANDROID_ROOT` env var or `/system/bin/app_process`) or standard Linux
 - The rootfs contains `/sbin/init` (systemd or openrc)
 - The rootfs contains `/etc/os-release` for auto-naming
 
@@ -102,17 +103,18 @@ Here's the high-level flow from `start` to `stop`, distilled to its essence:
                           │  check_requirements  │
                           │  android_optimizations│
                           │  generate UUID       │
-                          │  create socketpair   │
+                          │  allocate PTYs       │
+                          │    (LXC model)       │
                           └──────────┬──────────┘
                                      │
                               fork() │
                     ┌────────────────┼────────────────┐
-                    │ PARENT         │ INTERMEDIATE   │
-                    │                │ CHILD          │
+                    │ PARENT         │ MONITOR        │
+                    │                │ PROCESS        │
                     │                │                │
                     │                ▼                │
                     │     setsid()                    │
-                    │     unshare(PID|NS|UTS|IPC)     │
+                    │     unshare(PID|UTS|IPC)        │
                     │                │                │
                     │           fork()│                │
                     │         ┌──────┼──────┐         │
@@ -120,122 +122,141 @@ Here's the high-level flow from `start` to `stop`, distilled to its essence:
                     │         │      │      │         │
                     │         │      ▼      │         │
                     │         │ internal_boot()       │
-                    │         │   │ mount(/ PRIVATE)   │
-                    │         │   │ bind mount rootfs  │
-                    │         │   │ setup_dev()        │
-                    │         │   │ mount proc,sys,run │
-                    │         │   │ write UUID marker  │
-                    │         │   │ fix_networking     │
-                    │         │   │ setup_cgroups      │
-                    │         │   │ pivot_root(".",    │
-                    │         │   │   ".old_root")     │
-                    │         │   │ chdir("/")         │
-                    │         │   │ setup_devpts       │
-                    │         │   │ allocate_console   │
-                    │         │   │ allocate_ttys      │
-                    │         │   │ send master FDs    │
-                    │         │   │   via socketpair   │
-                    │         │   │ fix_networking_    │
-                    │         │   │   rootfs           │
-                    │         │   │ umount .old_root   │
-                    │         │   │ redirect stdio     │
-                    │         │   │   to /dev/console  │
-                    │         │   │ execve(/sbin/init) │
-                    │         │   ▼                    │
-                    │         │ waitpid(init)          │
-                    │         │ (proxy exit)           │
-                    │         └───────────────┘        │
-                    │                                  │
-                    ▼                                  │
-          recv master FDs via socketpair               │
-          find_and_save_pid() via UUID                 │
-                    │                                  │
-            ┌───────┴────────┐                         │
-            │ FOREGROUND?    │                         │
-            ├────YES─────┐   │                         │
-            │            ▼   │                         │
-            │  console_monitor_loop()                  │
-            │  (epoll stdin↔pty_master)                │
-            │                │                         │
-            ├────NO──────┐   │                         │
-            │            ▼   │                         │
-            │  fork() ds-monitor                       │
-            │  (holds FDs, waits for PID death)        │
-            │  parent exits with info                  │
-            └────────────────┘                         │
+                    │         │   │ unshare(NEWNS)    │
+                    │         │   │ mount(/ PRIVATE)  │
+                    │         │   │ bind mount rootfs │
+                    │         │   │ setup_dev()       │
+                    │         │   │ mount proc,sys,run│
+                    │         │   │ bind-mount PTYs   │
+                    │         │   │   (console+ttys)  │
+                    │         │   │ write UUID marker │
+                    │         │   │ setup_cgroups     │
+                    │         │   │ pivot_root(".",   │
+                    │         │   │   ".old_root")    │
+                    │         │   │ chdir("/")        │
+                    │         │   │ setup_devpts      │
+                    │         │   │ fix_networking_   │
+                    │         │   │   rootfs          │
+                    │         │   │ umount .old_root  │
+                    │         │   │ redirect stdio    │
+                    │         │   │   to /dev/console │
+                    │         │   │ execve(/sbin/init)│
+                    │         │   ▼                   │
+                    │         │ waitpid(init)         │
+                    │         │ cleanup_container_    │
+                    │         │   resources()         │
+                    │         │ (proxy exit)          │
+                    │         └──────────────┘        │
+                    │                                 │
+                    ▼                                 │
+          read init_pid from sync_pipe               │
+          fix_networking_host()                      │
+          find_and_save_pid()                        │
+                    │                                │
+            ┌───────┴────────┐                       │
+            │ FOREGROUND?    │                       │
+            ├────YES─────┐   │                       │
+            │            ▼   │                       │
+            │  console_monitor_loop()                │
+            │  (epoll stdin↔pty_master)              │
+            │                │                       │
+            ├────NO──────┐   │                       │
+            │            ▼   │                       │
+            │  show_info()                           │
+            │  parent exits                          │
+            │  monitor holds PTY FDs via waitpid()   │
+            └────────────────┘                       │
 ```
 
-**Key insight:** The intermediate process exists solely to create the PID namespace (since `unshare(CLONE_NEWPID)` affects children, not the caller) and to proxy the exit status. The *second* `fork()` after `unshare()` creates the actual PID 1 of the new namespace.
+**Key insight:** The monitor process (`[ds-monitor]`) creates the namespace via `unshare()`, then forks the container init (PID 1). The monitor stays alive via `waitpid()` on init — it holds all PTY master FDs open for the lifetime of the container. When init exits, the monitor calls `cleanup_container_resources()` and exits.
+
+**The parent** receives the init PID from the monitor via a sync pipe, saves it to the pidfile, and either enters the foreground console loop or exits after displaying status info.
 
 ---
 
 ## 4. Start: pivot_root, Namespace Creation, and Mount Setup
 
-### 4.1 Namespace Creation
+### 4.1 Pre-Fork Setup (Parent Process)
 
-The namespace creation happens in `start_rootfs()` (`container.c`, line 309):
+Before any forking, `start_rootfs()` in `container.c` performs:
+
+1. **Workspace creation:** `ensure_workspace()` creates `Pids/` directory under the workspace path
+2. **SELinux:** If `--selinux-permissive`, set SELinux to permissive mode
+3. **Rootfs image mount:** If `--rootfs-img`, run `e2fsck -f -y` then `mount -o loop`
+4. **Container name:** Auto-generated from `/etc/os-release`'s `ID` and `VERSION_ID` fields (e.g., `ubuntu-24.04`). Duplicate names get suffix (`ubuntu-24.04-1`)
+5. **UUID generation:** 32 hex chars from `/dev/urandom`
+6. **PTY allocation (LXC model):**
+   ```c
+   ds_terminal_create(&cfg->console);       // 1 console PTY
+   for (int i = 0; i < cfg->tty_count; i++) // 6 TTY PTYs (DS_MAX_TTYS)
+       ds_terminal_create(&cfg->ttys[i]);
+   ```
+   All PTYs are allocated in the **parent** process using `openpty()`. Both master and slave FDs are marked `FD_CLOEXEC`. The slave device paths (e.g., `/dev/pts/3`) are recorded in `tty->name` for later bind-mounting.
+
+### 4.2 Fork Architecture
+
+The parent forks a **monitor process**, not an intermediate throwaway:
 
 ```c
-setsid();
-if (unshare(CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID) < 0) {
-    error("unshare failed: %s", strerror(errno));
-    exit(1);
+pid_t monitor_pid = fork();
+if (monitor_pid == 0) {
+    /* MONITOR PROCESS */
+    setsid();
+    prctl(PR_SET_NAME, "[ds-monitor]", 0, 0, 0);
+    unshare(CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID);
+    
+    pid_t init_pid = fork();
+    if (init_pid == 0) {
+        /* CONTAINER INIT (PID 1) */
+        exit(internal_boot(cfg, -1));
+    }
+    
+    /* Send init_pid to parent via sync pipe */
+    write(sync_pipe[1], &init_pid, sizeof(pid_t));
+    
+    /* Wait for init to exit, then cleanup */
+    waitpid(init_pid, &status, 0);
+    cleanup_container_resources(cfg, init_pid, 0);
+    exit(WEXITSTATUS(status));
 }
 ```
 
-**Flags used:** `CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID`
+**Namespace allocation split:**
+- `CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID` — called in the monitor via `unshare()`
+- `CLONE_NEWNS` — called inside `internal_boot()` by the container init itself
+
+This split is deliberate: the monitor retains the host mount namespace so it can perform cleanup (unmounting rootfs images, removing pidfiles) after the container exits. The container init gets its own private mount namespace inside `internal_boot()`.
 
 **What is NOT used and why:**
-- `CLONE_NEWNET` — The container shares the host network. This is a deliberate design choice for simplicity on Android.
+- `CLONE_NEWNET` — The container shares the host network. Deliberate design choice for simplicity on Android.
 - `CLONE_NEWUSER` — Not used because Android kernels often lack support, and the tool requires root anyway.
-
-The `setsid()` call before `unshare()` is important: it creates a new session, which disconnects the intermediate process from the parent's controlling terminal. This is necessary because the child will later set up its own controlling terminal via `TIOCSCTTY`.
-
-### 4.2 The Double-Fork Pattern
-
-After `unshare()`, the code does a second `fork()`:
-
-```c
-pid_t init_pid = fork();
-if (init_pid == 0) {
-    /* Child becomes PID 1 in the new PID namespace */
-    exit(internal_boot());
-}
-/* Intermediate process waits for init and proxies exit status */
-waitpid(init_pid, &status, 0);
-_exit(WIFEXITED(status) ? WEXITSTATUS(status) : 1);
-```
-
-This is the classic Linux container double-fork: `unshare(CLONE_NEWPID)` only affects *new children*, not the calling process. The intermediate process itself still lives in the host PID namespace. Only the child born after `unshare()` gets PID 1 in the new namespace.
 
 ### 4.3 The internal_boot() Sequence
 
-This is the critical function — it runs as PID 1 inside the new namespace. Here is the exact order of operations:
+This is the critical function — it runs as PID 1 inside the new PID namespace. Here is the exact order of operations:
 
-**Step 1 — Make root mount private:**
+**Step 1 — Unshare mount namespace:**
+```c
+unshare(CLONE_NEWNS);
+```
+This gives the container its own private mount table.
+
+**Step 2 — Make root mount private:**
 ```c
 mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL);
 ```
 This prevents mount events from propagating back to the host. Without this, every mount inside the container would be visible to Android.
 
-**Step 2 — Bind mount rootfs to itself (directory mode only):**
+**Step 3 — Bind mount rootfs to itself:**
 ```c
-// Only for directory-based rootfs, not rootfs.img
-mount(g_rootfs_path, g_rootfs_path, NULL, MS_BIND, NULL);
+mount(cfg->rootfs_path, cfg->rootfs_path, NULL, MS_BIND | MS_REC, NULL);
 ```
-This is required by `pivot_root(2)` — the new root must be a mount point. For rootfs.img, the ext4 image is already loop-mounted, so it's already a mount point.
+This is required by `pivot_root(2)` — the new root must be a mount point. For rootfs.img, the ext4 image is already loop-mounted, so this is redundant but harmless.
 
-**Step 3 — chdir to rootfs:**
+**Step 4 — chdir to rootfs:**
 ```c
-chdir(g_rootfs_path);
+chdir(cfg->rootfs_path);
 ```
-
-**Step 4 — Read UUID from `.droidspaces-uuid`:**
-```c
-read_file(".droidspaces-uuid", container_uuid, sizeof(container_uuid));
-unlink(".droidspaces-uuid");
-```
-The UUID was written by the parent process before `fork()`. It's read here and cleaned up immediately.
 
 **Step 5 — Create `.old_root` directory:**
 ```c
@@ -244,9 +265,9 @@ mkdir(".old_root", 0755);
 
 **Step 6 — Setup /dev:**
 ```c
-setup_dev(g_rootfs_path);     // Mount tmpfs or devtmpfs at <rootfs>/dev
-create_devices(g_rootfs_path); // Create device nodes via mknod()
+setup_dev(".", cfg->hw_access);
 ```
+This mounts either `tmpfs` (isolated mode) or `devtmpfs` (hardware access mode) at `<rootfs>/dev`, then calls `create_devices()` to populate device nodes via `mknod()`. See Section 8 for details.
 
 **Step 7 — Mount /proc:**
 ```c
@@ -254,115 +275,102 @@ domount("proc", "proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
 ```
 
 **Step 8 — Mount /sys:**
-- Without `--hw-access`: sysfs is mounted RW initially, then a separate sysfs instance is mounted at `sys/devices/virtual/net` for networking, and finally the parent `/sys` is remounted read-only via `mount(NULL, "sys", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL)`.
+- Without `--hw-access`: sysfs is mounted RW initially, then a separate sysfs instance is mounted at `sys/devices/virtual/net` for networking tools, and finally the parent `/sys` is remounted read-only via `mount(NULL, "sys", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL)`.
 - With `--hw-access`: sysfs is simply mounted RW.
+
+The mixed-mode mount is excellent engineering — it gives Docker, WireGuard, Tailscale, and SSH the read-write access they need at `/sys/devices/virtual/net` while preventing systemd-udevd from triggering hardware events through the parent `/sys`.
 
 **Step 9 — Mount /run as tmpfs:**
 ```c
-domount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=755");
+domount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=755");
 ```
 
-**Step 10 — Create UUID marker file:**
+**Step 10 — Bind-mount PTYs (BEFORE pivot_root):**
 ```c
-write_file("run/<uuid>", "");
+mount(cfg->console.name, "dev/console", NULL, MS_BIND, NULL);
+for (int i = 0; i < cfg->tty_count; i++) {
+    snprintf(tty_target, sizeof(tty_target), "dev/tty%d", i + 1);
+    mount(cfg->ttys[i].name, tty_target, NULL, MS_BIND, NULL);
+}
 ```
-This is the file the parent will scan for in `/proc` to discover the container's PID. More on this in Section 5.
+This is the LXC model: PTY slaves allocated in the parent (e.g., `/dev/pts/3`) are bind-mounted to their container targets (e.g., `dev/console`, `dev/tty1`..`dev/tty6`) **before** `pivot_root`. This is critical because after `pivot_root`, the host `/dev/pts/N` paths would no longer be accessible.
 
-**Step 11 — Network configuration (host side):**
+**Step 11 — Write UUID marker:**
 ```c
-fix_networking_host();
+write_file("run/<uuid>", "init");
+write_file("run/droidspaces", DS_VERSION);
 ```
-DNS resolution, routing, iptables on Android.
+The UUID marker is used by the parent for PID discovery (see Section 5). The `run/droidspaces` file is polled by the parent to confirm the boot sequence has passed `pivot_root`.
 
 **Step 12 — Setup cgroups:**
 ```c
 setup_cgroups();
 ```
-Creates `sys/fs/cgroup` as tmpfs with `devices` and `systemd` subdirectories.
+Detects cgroup v2 (unified hierarchy) or falls back to cgroup v1 legacy directories: `cpu`, `cpuacct`, `devices`, `memory`, `freezer`, `blkio`, `pids`, `systemd`.
 
 **Step 13 — Optional: Android storage bind mount:**
 ```c
-if (g_android_storage) android_setup_storage(g_rootfs_path);
+if (cfg->android_storage) android_setup_storage(".");
 ```
+Bind-mounts `/storage/emulated/0` into the container.
 
 **Step 14 — pivot_root:**
 ```c
 syscall(SYS_pivot_root, ".", ".old_root");
 chdir("/");
 ```
-
-Here's what this does: the current directory (`.`, which is the rootfs path) becomes the new root filesystem. The old root (`/` from Android's perspective) is moved to `.old_root` under the new root. After `chdir("/")`, we're now standing inside the container's filesystem.
+The current directory (`.`, which is the rootfs path) becomes the new root filesystem. The old root (`/` from Android's perspective) is moved to `.old_root` under the new root.
 
 **Step 15 — Setup devpts:**
 ```c
-setup_devpts(g_rootfs_path);
+setup_devpts(cfg->hw_access);
 ```
-This MUST happen after `pivot_root` because devpts `newinstance` needs to be mounted inside the new root. The mount is at `/dev/pts` (absolute, inside the container).
+This MUST happen after `pivot_root` because devpts `newinstance` needs to be mounted inside the new root. Mounts at `/dev/pts` with options `gid=5,newinstance,ptmxmode=0666,mode=0620`. Then virtualizes `/dev/ptmx` by bind-mounting `/dev/pts/ptmx` over it.
 
-**Step 16 — Allocate console and TTYs:**
+**Step 16 — Network configuration (rootfs side):**
 ```c
-allocate_console(&console);
-setup_console(g_rootfs_path, &console);
-allocate_ttys(g_ttys, 4);
-setup_ttys(g_rootfs_path, g_ttys, 4);
+fix_networking_rootfs(cfg);
 ```
+Sets hostname (from `--hostname`), writes `/etc/hosts`, reads DNS from `.old_root/.dns_servers` (written by `fix_networking_host()` before boot), writes `/run/resolvconf/resolv.conf`, symlinks `/etc/resolv.conf`, and appends Android network groups (`aid_inet`, `aid_net_raw`, `aid_net_admin`) to `/etc/group`.
 
-**Step 17 — Send master FDs to parent via Unix socket:**
-```c
-int masters[5] = { console.master, g_ttys[0].master, ..., g_ttys[3].master };
-send_fds(sock_fd, masters, 5);
-close(console.master);
-for (int i = 0; i < 4; i++) close(g_ttys[i].master);
-```
-
-This is the FD passing mechanism: the master side of each PTY is sent to the parent process via `SCM_RIGHTS` over the socketpair created before `fork()`. After sending, the master FDs are closed in the container — only the parent needs them.
-
-**Step 18 — Network configuration (rootfs side):**
-```c
-fix_networking_rootfs();
-```
-Hostname, DNS resolv.conf, Android network groups.
-
-**Step 19 — Write container marker:**
-```c
-mkdir("/run/systemd", 0755);
-write_file("/run/systemd/container", "droidspaces\n");
-```
-This file is how systemd detects it's running in a container, and how Droidspaces validates a PID belongs to one of its containers (`is_valid_container_pid()` checks this file).
-
-**Step 20 — Setup environment:**
-```c
-setup_container_env(container_ttys_value);
-```
-Calls `clearenv()` then sets:
-- `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`
-- `TERM=xterm`
-- `HOME=/root`
-- `container=droidspaces`
-- `container_ttys=/dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4` (tells systemd which TTYs are available)
-
-**Step 21 — Unmount old root:**
+**Step 17 — Unmount old root:**
 ```c
 umount2("/.old_root", MNT_DETACH);
 rmdir("/.old_root");
 ```
 
-**Step 22 — Redirect stdio to console:**
+**Step 18 — Write container marker:**
+```c
+write_file("/run/systemd/container", "droidspaces");
+```
+This is how systemd detects it's running in a container, and how Droidspaces validates a PID belongs to one of its containers (`is_valid_container_pid()` checks this file).
+
+**Step 19 — Setup environment:**
+```c
+clearenv();
+setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+setenv("TERM", "xterm-256color", 1);
+setenv("HOME", "/root", 1);
+setenv("container", "droidspaces", 1);
+setenv("container_ttys", "/dev/pts/0 /dev/pts/1 ...", 1);
+```
+The `container_ttys` string is built from the PTY slave names recorded during allocation.
+
+**Step 20 — Redirect stdio to console:**
 ```c
 int console_fd = open("/dev/console", O_RDWR);
-dup2(console_fd, STDIN_FILENO);
-dup2(console_fd, STDOUT_FILENO);
-dup2(console_fd, STDERR_FILENO);
-setsid();
-ioctl(STDIN_FILENO, TIOCSCTTY, 0);
+ds_terminal_set_stdfds(console_fd);     // dup2 to 0, 1, 2
+ds_terminal_make_controlling(console_fd); // setsid() + TIOCSCTTY
 ```
 
-**Step 23 — Exec init:**
+**Step 21 — Exec init:**
 ```c
 execve("/sbin/init", argv, environ);
+// Fallback:
+execve("/bin/sh", argv, environ);
 ```
 
-This is it. After `execve`, the container is running. PID 1 is now systemd (or openrc), its stdio is connected to the console PTY, and the parent process holds the master side of that PTY.
+After `execve`, the container is running. PID 1 is now systemd (or openrc), its stdio is connected to the console PTY, and the monitor process holds the master side of all PTYs.
 
 ---
 
@@ -370,52 +378,51 @@ This is it. After `execve`, the container is running. PID 1 is now systemd (or o
 
 ### 5.1 The Problem
 
-After `fork() + unshare() + fork()`, the parent process needs to know the _global_ PID of the container's init process. But the parent doesn't directly get this PID — the intermediate process does the second fork, and the grandchild's PID in the host namespace isn't passed back.
+After `fork() + unshare() + fork()`, the parent process needs to know the _global_ PID of the container's init process. The monitor process knows the init PID in its local view, but due to PID namespace translation, this may differ from the host view.
 
-### 5.2 The UUID Marker Trick
+### 5.2 The Sync Pipe Approach
 
-Here's the elegant solution Droidspaces uses:
-
-1. **Before fork:** Parent generates a 32-character hex UUID and writes it to `<rootfs>/.droidspaces-uuid`
-2. **Inside container (Step 10):** After mounting `/run` as tmpfs, `internal_boot()` creates an empty marker file at `/run/<uuid>`
-3. **Parent scans `/proc`:** After the container starts, the parent iterates over every PID in `/proc` and checks if `/proc/<pid>/root/run/<uuid>` exists
+In v3, the PID discovery has been simplified. The monitor process sends the init's PID directly to the parent via a sync pipe:
 
 ```c
-// Pseudocode for the UUID scan:
-for each pid in /proc:
-    path = "/proc/<pid>/root/run/<uuid>"
-    if access(path, F_OK) == 0:
-        found_pid = pid   // This PID's mount namespace contains our marker
-        break
+/* Monitor side */
+pid_t init_pid = fork();
+write(sync_pipe[1], &init_pid, sizeof(pid_t));
+
+/* Parent side */
+read(sync_pipe[0], &cfg->container_pid, sizeof(pid_t));
 ```
 
-### 5.3 Parallel Scanning
+Since the monitor has not entered a PID namespace itself (only its children do), the `init_pid` it observes is the host-global PID.
 
-The scan is parallelized using a thread pool. `collect_pids()` reads all numeric entries from `/proc`, then distributes them across `sysconf(_SC_NPROCESSORS_ONLN)` threads (capped at 8). Each thread scans its assigned PID range using `uuid_scan_worker()`.
+### 5.3 The UUID Marker (Boot Confirmation)
 
-### 5.4 Retry Logic
+The UUID marker file at `/run/<uuid>` still serves an important purpose: boot confirmation. After saving the PID, the parent polls for the marker via `/proc/<pid>/root/run/droidspaces` to confirm the container has completed `pivot_root` before displaying status information:
 
-The UUID scan is retried up to `UUID_RETRY_COUNT` (6) times with `UUID_RETRY_DELAY_MS` (500ms) between attempts. If that fails, an additional 10 retries at 100ms intervals are attempted.
+```c
+char marker[PATH_MAX];
+snprintf(marker, sizeof(marker), "/proc/%d/root/run/droidspaces", cfg->container_pid);
+for (int i = 0; i < 50; i++) {    /* 5 seconds max */
+    if (access(marker, F_OK) == 0) break;
+    usleep(100000);                /* 100ms */
+}
+```
+
+### 5.4 UUID Scanning for Container Recovery
+
+The `find_container_init_pid()` function retains the full UUID scan for container recovery and the `scan` command. It iterates over all PIDs in `/proc` and checks `build_proc_root_path(pid, "/run/<uuid>", ...)` with retry logic (20 retries, 200ms delay).
 
 ### 5.5 Why This Works for Multi-Container
 
 Each container gets a unique UUID. The marker file exists only inside that specific container's mount namespace (in its `/run` tmpfs). The `/proc/<pid>/root` path traverses into the container's root filesystem from the host. So two containers with different rootfs paths will have different UUIDs, and the scan will find the correct PID for each.
 
-### 5.6 Cleanup
-
-After the PID is discovered and saved, the marker file is deleted:
-```c
-// delete_uuid_marker() in container.c
-unlink("/proc/<pid>/root/run/<uuid>");
-```
-
-### 5.7 PID Persistence
+### 5.6 PID Persistence
 
 The discovered PID is written to a pidfile at `<workspace>/Pids/<name>.pid`:
 - Android: `/data/local/Droidspaces/Pids/ubuntu-24.04.pid`
 - Linux: `/var/lib/Droidspaces/Pids/ubuntu-24.04.pid`
 
-Container names are auto-generated from `/etc/os-release` (`ID-VERSION_ID`, e.g., `ubuntu-24.04`). Duplicate names get a numeric suffix (`ubuntu-24.04-1`, `ubuntu-24.04-2`, etc.).
+Container names are auto-generated from `/etc/os-release` (`ID-VERSION_ID`, e.g., `ubuntu-24.04`). Duplicate names get a numeric suffix (`ubuntu-24.04-1`, `ubuntu-24.04-2`, etc.) via `find_available_name()`.
 
 ---
 
@@ -424,405 +431,313 @@ Container names are auto-generated from `/etc/os-release` (`ID-VERSION_ID`, e.g.
 ### 6.1 The exec Call
 
 ```c
-const char *init_path = "/sbin/init";
-char *argv[] = { (char *)init_path, NULL };
-extern char **environ;
-execve(init_path, argv, environ);
+char *argv[] = {"/sbin/init", NULL};
+execve("/sbin/init", argv, environ);
 ```
 
-No arguments are passed to init. The environment is clean (set by `setup_container_env()`). The `container=droidspaces` environment variable tells systemd it's in a container.
+No arguments are passed to init. The environment is clean. The `container=droidspaces` environment variable tells systemd it's in a container. Fallback to `/bin/sh` if `/sbin/init` is not found.
 
 ### 6.2 Foreground Mode
 
 When `--foreground` is specified:
 
-1. The parent process puts the terminal into raw mode:
+1. The parent process puts the terminal into raw mode via `ds_setup_tios()`:
    ```c
-   tios.c_iflag |= IGNPAR;
-   tios.c_iflag &= ~(ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXANY | IXOFF);
-   tios.c_lflag &= ~(TOSTOP | ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHONL);
-   tios.c_oflag &= ~ONLCR;
-   tios.c_oflag |= OPOST;
+   new_tios.c_iflag |= IGNPAR;
+   new_tios.c_iflag &= ~(ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXANY | IXOFF);
+   new_tios.c_lflag &= ~(TOSTOP | ISIG | ICANON | ECHO | ECHOE | ECHOK | ECHONL);
+   new_tios.c_oflag &= ~ONLCR;
+   new_tios.c_oflag |= OPOST;
    ```
 
 2. Then it enters `console_monitor_loop()`, which uses epoll to shuttle data between:
-   - `user_stdin` (fd 0) → `pty_master` (container input)
-   - `pty_master` (container output) → `user_stdout` (fd 1)
+   - `STDIN_FILENO` (user input) → `console_master` (container input)
+   - `console_master` (container output) → `STDOUT_FILENO` (user display)
 
 3. The epoll loop also monitors a `signalfd` for:
-   - `SIGCHLD` — detects when the intermediate process exits (container shutdown or reboot)
+   - `SIGCHLD` — detects when the intermediate or container process exits
    - `SIGINT` / `SIGTERM` — forwarded to the container's init PID
    - `SIGWINCH` — terminal resize is forwarded via `ioctl(TIOCSWINSZ)`
 
-4. **Reboot detection:** When the kernel receives a `reboot()` syscall from PID 1 inside the namespace, it sends `SIGINT` to the namespace creator (the intermediate process). The monitor loop detects this and performs cleanup.
+4. The loop terminates on `EPOLLHUP`/`EPOLLERR` on the master fd, or when `SIGCHLD` indicates the container has exited.
 
 ### 6.3 Background Mode
 
 When foreground is not requested:
 
-1. The parent forks a "monitor" daemon (`[ds-monitor]`):
-   ```c
-   if (fork() == 0) {
-       setsid();
-       prctl(PR_SET_NAME, "[ds-monitor]", ...);
-       // redirect stdio to /dev/null
-       while (kill(container_pid, 0) == 0) sleep(60);
-       // close master FDs when container dies
-   }
-   ```
+1. The **monitor process** (forked during start) is already running. It calls `waitpid(init_pid, ...)` and blocks until the container exits. The monitor inherits all PTY master FDs from the parent, keeping them alive for the container's lifetime.
 
-2. This daemon's sole purpose is to **hold the PTY master FDs open**. Without this, the PTY slave devices inside the container would become invalid, and getty/systemd would fail to use them.
+2. The parent polls for the boot marker, calls `show_info()` to display container details, logs connection instructions, and exits.
 
-3. The original parent prints status info and exits.
+3. When the container exits, the monitor process calls `cleanup_container_resources()` to remove pidfiles, unmount images, restore firmware paths, and restore Android optimizations.
 
 ### 6.4 How Getty/Login Works
 
-After systemd boots, it spawns `agetty` on the TTY devices listed in `container_ttys`. The `container_ttys` environment variable tells systemd which `/dev/ttyN` devices are available. `agetty` opens `/dev/ttyN`, which is bind-mounted to a PTY slave. The PTY master is held open by either the foreground console monitor or the background `[ds-monitor]` daemon.
-
-In foreground mode, the user sees the login prompt because `console_monitor_loop()` relays all output from `pty_master` (which is the master side of `/dev/console`'s PTY) to stdout.
+After systemd boots, it spawns `agetty` on the TTY devices listed in `container_ttys`. The `container_ttys` environment variable tells systemd which `/dev/pts/N` devices are available. `agetty` opens `/dev/ttyN`, which is bind-mounted to a PTY slave. The PTY master is held open by the monitor process (background) or the console monitor loop (foreground).
 
 ---
 
 ## 7. TTY/PTY/Console Setup
 
-This is the most complex part of the codebase, and the part most deserving of critique.
+### 7.1 The LXC Model
 
-### 7.1 Console PTY
-
-After `pivot_root` and `setup_devpts()`, the code allocates a console PTY:
+Droidspaces v3 allocates all PTYs **in the parent process** before forking, following the LXC approach. This is a fundamental improvement over v2, which allocated PTYs inside the container and sent master FDs back via `SCM_RIGHTS`.
 
 ```c
-// terminal.c: allocate_console()
-openpty(&console->master, &console->slave, NULL, NULL, &ws);
-ttyname_r(console->slave, console->name, sizeof(console->name));
-// name is something like "/dev/pts/0"
-```
-
-The slave end is then bind-mounted to `/dev/console`:
-
-```c
-// terminal.c: setup_console()
-mknod("/dev/console", S_IFREG | 0000, 0);   // create bind mount target
-mount(console->name, "/dev/console", NULL, MS_BIND, NULL);
-// e.g., mount("/dev/pts/0", "/dev/console", ...)
-```
-
-### 7.2 TTY Devices (tty1-tty4)
-
-Four additional PTY pairs are allocated for virtual terminals:
-
-```c
-// terminal.c: allocate_ttys()
-for (size_t i = 0; i < 4; i++) {
-    openpty(&ttys[i].master, &ttys[i].slave, NULL, NULL, &ws);
-    ttyname_r(ttys[i].slave, ttys[i].name, sizeof(ttys[i].name));
-}
-
-// terminal.c: setup_ttys()
-for (size_t i = 0; i < 4; i++) {
-    char tty_path[32];
-    snprintf(tty_path, sizeof(tty_path), "/dev/tty%zu", i + 1);
-    mknod(tty_path, S_IFREG | 0000, 0);
-    mount(ttys[i].name, tty_path, NULL, MS_BIND, NULL);
-    // e.g., mount("/dev/pts/1", "/dev/tty1", ...)
+// terminal.c: ds_terminal_create()
+int ds_terminal_create(struct ds_tty_info *tty) {
+    openpty(&tty->master, &tty->slave, tty->name, NULL, NULL);
+    fcntl(tty->master, F_SETFD, FD_CLOEXEC);
+    fcntl(tty->slave, F_SETFD, FD_CLOEXEC);
+    return 0;
 }
 ```
 
-### 7.3 FD Passing
+Key points:
+- `openpty()` allocates a master/slave pair from the host's `/dev/ptmx`
+- Both FDs are marked `FD_CLOEXEC` so they don't leak to the container's init via `execve()`
+- The slave name (e.g., `/dev/pts/3`) is recorded in `tty->name`
 
-All 5 master FDs (1 console + 4 TTYs) are sent from the container process (PID 1) to the parent via `SCM_RIGHTS` over a Unix socketpair:
+### 7.2 Console PTY
 
-```c
-// fd_passing.c: send_fds()
-struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
-cmsg->cmsg_level = SOL_SOCKET;
-cmsg->cmsg_type = SCM_RIGHTS;
-cmsg->cmsg_len = CMSG_LEN(sizeof(int) * count);
-memcpy(CMSG_DATA(cmsg), fds, sizeof(int) * count);
-sendmsg(sock, &msg, 0);
-```
-
-After sending, the master FDs are closed inside the container. Only the slave FDs remain open, inherited by `execve(/sbin/init)`.
-
-### 7.4 Device Node Persistence
-
-A critical detail: PTY device nodes in `/dev/pts/` are backed by the devpts filesystem. A node like `/dev/pts/0` only exists as long as *at least one file descriptor* referencing it remains open. The slave FDs are intentionally left open (no `FD_CLOEXEC`) so they survive the `execve()` call to init. The master FDs are held by the parent process.
-
-### 7.5 devpts Mount Options
+One dedicated PTY is allocated for `/dev/console`. Its slave path is bind-mounted to `dev/console` inside the rootfs before `pivot_root`:
 
 ```c
-// mount.c: setup_devpts()
-mount("devpts", "/dev/pts", "devpts",
-      MS_NOSUID | MS_NOEXEC,
-      "gid=5,newinstance,ptmxmode=0666,mode=0620");
+mount(cfg->console.name, "dev/console", NULL, MS_BIND, NULL);
 ```
 
-The `newinstance` flag is **critical**. It creates a new devpts instance isolated from the host's `/dev/pts`. Without it, the container would see the host's PTY devices.
+After pivot_root, `internal_boot()` opens `/dev/console`, redirects stdin/stdout/stderr to it, and makes it the controlling terminal via `TIOCSCTTY`.
 
-After mounting, `/dev/ptmx` is bind-mounted from `/dev/pts/ptmx`:
-```c
-mount("/dev/pts/ptmx", "/dev/ptmx", NULL, MS_BIND, NULL);
-```
+### 7.3 TTY PTYs
 
-### 7.6 /dev Population (non-hw-access mode)
+Up to 6 additional PTYs (`DS_MAX_TTYS = 6`) are allocated for `/dev/tty1` through `/dev/tty6`. Each slave path is bind-mounted:
 
 ```c
-// mount.c: create_devices()
-mknod("<rootfs>/dev/null",    S_IFCHR | 0666, makedev(1, 3));
-mknod("<rootfs>/dev/zero",    S_IFCHR | 0666, makedev(1, 5));
-mknod("<rootfs>/dev/full",    S_IFCHR | 0666, makedev(1, 7));
-mknod("<rootfs>/dev/random",  S_IFCHR | 0666, makedev(1, 8));
-mknod("<rootfs>/dev/urandom", S_IFCHR | 0666, makedev(1, 9));
-mknod("<rootfs>/dev/tty",     S_IFCHR | 0666, makedev(5, 0));
-mknod("<rootfs>/dev/console",  S_IFCHR | 0600, makedev(5, 1));
-mknod("<rootfs>/dev/net/tun", S_IFCHR | 0666, makedev(10, 200));
-mknod("<rootfs>/dev/fuse",    S_IFCHR | 0666, makedev(10, 229));
+for (int i = 0; i < cfg->tty_count; i++) {
+    snprintf(tgt, sizeof(tgt), "dev/tty%d", i + 1);
+    mount(cfg->ttys[i].name, tgt, NULL, MS_BIND, NULL);
+}
 ```
+
+### 7.4 devpts newinstance
+
+After `pivot_root`, a **new** devpts instance is mounted at `/dev/pts` with the `newinstance` flag. This gives the container its own PTY numbering space, independent of the host. The container's `/dev/ptmx` is virtualized by bind-mounting `/dev/pts/ptmx` over it (or symlink as fallback).
+
+The mount options tried (in fallback order):
+1. `gid=5,newinstance,ptmxmode=0666,mode=0620`
+2. `newinstance,ptmxmode=0666,mode=0620`
+3. `gid=5,newinstance,mode=0620`
+4. `newinstance,ptmxmode=0666`
+5. `newinstance`
+
+### 7.5 Why Parent-Side Allocation is Better
+
+The v2 approach of allocating PTYs inside the container had several problems:
+- Required `SCM_RIGHTS` FD passing over Unix sockets (complex and fragile)
+- Required a socketpair to be created before fork and managed across process boundaries
+- The `[ds-monitor]` daemon in v2 used a `while(kill(pid, 0) == 0) sleep(60)` polling loop just to hold FDs
+
+The v3 approach is simpler: PTYs are allocated before `fork()`, inherited by the monitor process, and bind-mounted before `pivot_root`. No FD passing is needed. The monitor holds the master FDs alive naturally via `waitpid()`.
 
 ---
 
-### ⚠️ Known Issue: Current TTY/PTY Approach is Broken — LXC Model Needed
+## 8. Hardware Access Mode
 
-The current implementation manually allocates PTY pairs via `openpty()`, bind-mounts the slave end to `/dev/ttyN`, then holds the master FDs open in the parent process (either the foreground console monitor or the `[ds-monitor]` daemon). This is fragile, wasteful, and architecturally wrong.
+### 8.1 The Default: Isolated /dev (tmpfs)
 
-**What's wrong, specifically:**
-
-1. **Manual FD babysitting.** The code opens 5 PTY pairs (1 console + 4 TTYs) at boot time, sends the 5 master FDs from the container to the parent via SCM_RIGHTS, and then either the foreground monitor or a background daemon holds them open for the lifetime of the container. If that process dies (e.g., the user kills `[ds-monitor]`), the PTY devices inside the container silently become invalid. `agetty` will fail, console I/O stops, and the container becomes headless with no way to recover.
-
-2. **Static TTY count.** Four TTYs are hardcoded. If you want 6, you recompile. If you want 1, you still pay for 4.
-
-3. **The `container_ttys` environment hack.** The code builds a `container_ttys=/dev/tty1 /dev/tty2 /dev/tty3 /dev/tty4` environment variable to tell systemd which TTYs exist. This works, but it's a fragile coupling between the runtime and systemd's container detection logic.
-
-4. **No `O_CLOEXEC` management.** The slave FDs are intentionally left without `FD_CLOEXEC` so they survive `execve()`. While this is necessary to keep the PTY nodes alive, it means init and all its children inherit 9+ file descriptors they never use. This is a file descriptor leak.
-
-**What LXC does differently (and correctly):**
-
-LXC's approach to TTY/console setup is fundamentally different and should be studied for the next implementation:
-
-1. **LXC allocates PTYs in the monitor (parent) process**, not inside the container. The monitor opens PTY pairs, then passes the *slave* FDs into the container via bind mounts to `/dev/console` and `/dev/ttyN`.
-
-2. **The master side stays in the monitor naturally.** No `SCM_RIGHTS` FD passing is needed because the PTYs are opened by the monitor, which already has the master FDs. The child inherits the slave FDs via the bind-mounted device nodes.
-
-3. **LXC's `lxc.tty.max` config** controls how many TTYs are created, configurable per-container, not hardcoded.
-
-4. **LXC properly handles PTY lifecycle.** When getty exits, the PTY slave is closed, but the master remains in the monitor. When getty respawns, it re-opens `/dev/ttyN`, which still works because the bind mount points to a devpts node kept alive by the master in the monitor.
-
-5. **LXC's console setup** uses `lxc_terminal_create()` to allocate PTYs, `lxc_terminal_setup()` to bind-mount them, and `lxc_terminal_mainloop_add()` to integrate them with the event loop. The monitor handles window resize, HUP/reconnect, and clean teardown.
-
-**The correct approach for Droidspaces v3:**
-
-The next implementation must allocate PTYs in the parent/monitor process *before* creating the container, pass the slave names into the container (via environment or a config protocol), and let the container's `internal_boot()` bind-mount the already-existing device nodes. The master FDs naturally live in the parent. No FD passing, no daemon to hold FDs, no fragile `[ds-monitor]` process.
-
----
-
-## 8. Hardware Access Mode (`--hw-access`)
-
-### 8.1 What Changes
-
-The `--hw-access` flag modifies exactly two things in the container setup:
-
-**1. /dev mount type:**
-
-| Mode | /dev Mount |
-|---|---|
-| Default | `mount("none", "<rootfs>/dev", "tmpfs", 0, "size=500000,mode=755")` |
-| `--hw-access` | `mount("dev", "<rootfs>/dev", "devtmpfs", MS_NOSUID \| MS_NOEXEC, "mode=755")` |
-
-With `devtmpfs`, the kernel auto-populates `/dev` with device nodes for all hardware — block devices, input devices, GPU, USB, etc. The container can talk to real hardware.
-
-**2. /sys access:**
-
-| Mode | /sys Mount |
-|---|---|
-| Default | sysfs mounted RW, then remounted RO via `MS_REMOUNT \| MS_BIND \| MS_RDONLY`. A separate sysfs instance is mounted RW at `/sys/devices/virtual/net` for networking. |
-| `--hw-access` | sysfs mounted RW without restriction |
-
-### 8.2 devtmpfs Conflict Handling
-
-When devtmpfs is mounted, it may contain host device nodes that conflict with the container's needs (e.g., `/dev/console`, `/dev/tty`). The code explicitly removes these conflicts:
+Without `--hw-access`, the container gets a minimal `/dev` on a private tmpfs:
 
 ```c
-const char *conflicts[] = {
-    "console", "tty", "full", "null", "zero",
-    "random", "urandom", "ptmx", NULL
-};
+domount("none", dev_path, "tmpfs", MS_NOSUID | MS_NOEXEC, "size=8M,mode=755");
+```
+
+Followed by `mknod()` for: `null`, `zero`, `full`, `random`, `urandom`, `tty`, `console`, `ptmx`, plus `net/tun`, `fuse`, and `tty1`-`tty6` mount targets.
+
+### 8.2 Hardware Access: devtmpfs
+
+With `--hw-access`, the container mounts the kernel's `devtmpfs`:
+
+```c
+domount("devtmpfs", dev_path, "devtmpfs", MS_NOSUID | MS_NOEXEC, "mode=755");
+```
+
+**CRITICAL:** `devtmpfs` is a shared singleton in the kernel. All instances share the same backing store. This means:
+- The container can see **all** host devices (Binder, GPU, USB, etc.)
+- Changes to the devtmpfs (unlink, mknod) affect **all** mountpoints
+
+### 8.3 The Conflict Resolution Strategy
+
+After mounting `devtmpfs`, certain nodes conflict with the container's needs (the container needs its own `console`, `ptmx`, etc. for PTY isolation). The solution:
+
+```c
+const char *conflicts[] = {"console", "tty", "full", "null", "zero",
+                           "random", "urandom", "ptmx", NULL};
 for (int i = 0; conflicts[i]; i++) {
-    umount2(path, MNT_DETACH);
-    unlink(path);
+    umount2(path, MNT_DETACH);   // Unmount any bind-mounts
+    unlink(path);                 // Remove the node
 }
 ```
 
-Then `create_devices()` recreates them with correct permissions.
-
-### 8.3 Firmware Path Modification
-
-With `--hw-access`, the host's kernel firmware search path is modified to include the container's `/lib/firmware`:
+Then `create_devices()` immediately recreates them as **real character devices** using `mknod()`:
 
 ```c
-// utils.c: firmware_path_add_rootfs()
-// Reads /sys/module/firmware_class/parameters/path
-// Appends "<rootfs>/lib/firmware" to the comma-separated list
+mknod(path, S_IFCHR | 0666, makedev(1, 3));  // null = 1:3
+mknod(path, S_IFCHR | 0666, makedev(5, 2));  // ptmx = 5:2
+// etc.
 ```
 
-This is reversed on `stop` via `firmware_path_remove_rootfs()`.
+This is the legacy Droidspaces v2 strategy — proven safe because:
+1. The `unlink` + `mknod` is atomic per-node (the host sees a brief gap, but the node is immediately restored)
+2. The new nodes have the correct major:minor numbers, so they work identically
+3. The `console` node (5:1) created by `mknod` serves as a mount target for the PTY bind-mount
 
-### 8.4 Security Implications
+### 8.4 devpts in HW Access Mode
 
-**`--hw-access` is a security disaster.** It gives the container:
-- Direct access to every block device (can overwrite partitions)
-- Access to `/dev/kmem` and `/dev/mem` (can read/write kernel memory)
-- Read-write access to sysfs (can trigger kernel actions)
-- Access to USB, GPU, and input devices
-
-This is appropriate for development and testing but should never be used on a shared or production system.
-
-### 8.5 Detection at Runtime
-
-HW access mode is detected for the `info` command by checking the container's `/dev` filesystem type:
+When setting up `/dev/ptmx` after devpts mount, the HW access path differs:
 
 ```c
-// mount.c: detect_hw_access_in_container()
-get_container_mount_fstype(pid, "/dev", fstype, sizeof(fstype));
-return strcmp(fstype, "devtmpfs") == 0;
+if (hw_access) {
+    /* /dev is devtmpfs (shared). Do NOT unlink ptmx. Bind-mount over the
+     * node that create_devices() already created. */
+    mount("/dev/pts/ptmx", "/dev/ptmx", NULL, MS_BIND, NULL);
+} else {
+    /* /dev is private tmpfs. Safe to unlink and replace. */
+    unlink("/dev/ptmx");
+    write_file("/dev/ptmx", "");
+    mount("/dev/pts/ptmx", "/dev/ptmx", NULL, MS_BIND, NULL);
+}
 ```
+
+### 8.5 /sys in HW Access Mode
+
+With `--hw-access`, `/sys` is mounted **read-write** (no mixed-mode). This allows full hardware control via sysfs, but also means systemd-udevd can trigger device events on the host.
 
 ---
 
 ## 9. Entering a Running Container
 
-### 9.1 Overview
+### 9.1 The enter_namespace() Helper
 
-The `enter` command (`enter_rootfs()` in `container.c`) attaches an interactive shell to a running container by entering its namespaces via `setns(2)`.
-
-### 9.2 PID Resolution
-
-The target PID is read from the pidfile and validated:
+Droidspaces v3 factored out namespace entry into a shared function used by both `enter` and `run`:
 
 ```c
-check_status(&pid);  // reads pidfile, checks kill(pid, 0), validates is_valid_container_pid()
-```
-
-### 9.3 Namespace Entry
-
-Four namespace FDs are opened and entered in order:
-
-```c
-// 1. Open namespace FDs
-mnt_fd = open("/proc/<pid>/ns/mnt", O_RDONLY);   // Mount namespace
-uts_fd = open("/proc/<pid>/ns/uts", O_RDONLY);   // UTS namespace
-ipc_fd = open("/proc/<pid>/ns/ipc", O_RDONLY);   // IPC namespace
-pid_fd = open("/proc/<pid>/ns/pid", O_RDONLY);   // PID namespace
-
-// 2. Enter namespaces (mount is mandatory, others are best-effort)
-syscall(SYS_setns, mnt_fd, CLONE_NEWNS);    // Must succeed
-syscall(SYS_setns, uts_fd, CLONE_NEWUTS);    // Warned if fails
-syscall(SYS_setns, ipc_fd, CLONE_NEWIPC);    // Warned if fails
-syscall(SYS_setns, pid_fd, CLONE_NEWPID);    // Warned if fails
-```
-
-**Important:** `setns()` for PID namespace (like `unshare(CLONE_NEWPID)`) only affects children. So the code must fork after `setns()`:
-
-```c
-pid_t child = fork();
-if (child > 0) {
-    waitpid(child, &status, 0);
-    return WEXITSTATUS(status);
+int enter_namespace(pid_t pid) {
+    const char *ns_names[] = {"mnt", "uts", "ipc", "pid"};
+    int ns_fds[4];
+    
+    /* 1. Open ALL namespace FDs first (before any setns) */
+    for (int i = 0; i < 4; i++) {
+        snprintf(path, sizeof(path), "/proc/%d/ns/%s", pid, ns_names[i]);
+        ns_fds[i] = open(path, O_RDONLY);
+    }
+    
+    /* 2. Enter namespaces */
+    for (int i = 0; i < 4; i++) {
+        if (ns_fds[i] >= 0) {
+            setns(ns_fds[i], 0);
+            close(ns_fds[i]);
+        }
+    }
+    return 0;
 }
-// child is now in the container's PID namespace
 ```
 
-### 9.4 Shell Discovery
+**Critical detail:** All namespace FDs are opened **before** any `setns()` call. This is because entering one namespace (e.g., mount) changes the view of `/proc`, which could make subsequent namespace FD opens fail.
+
+The mount namespace is mandatory; others are optional with warnings.
+
+### 9.2 The Double-Fork for PID Namespace
+
+After `setns(CLONE_NEWPID)`, a `fork()` is required — `setns` only affects children, not the caller:
 
 ```c
-const char *container_shells[] = {
-    "/bin/bash",
-    "/bin/ash",
-    "/bin/sh",
-    NULL
-};
+pid_t child = fork();           // First fork: host -> container namespaces
+if (child == 0) {
+    enter_namespace(pid);
+    pid_t shell_pid = fork();   // Second fork: actually in the PID namespace
+    if (shell_pid == 0) {
+        chdir("/");
+        clearenv();
+        /* ... set environment ... */
+        execve("/bin/bash", argv, environ);
+    }
+    waitpid(shell_pid, NULL, 0);
+}
+waitpid(child, NULL, 0);
 ```
 
-The code iterates through this list, calls `access(shell, X_OK)` for each, and `execve()`s the first one that exists and is executable. For non-root users, it calls `execve("/bin/su", {"su", "-l", user, NULL}, environ)`.
+### 9.3 Shell Selection
 
-### 9.5 Environment
+The `enter` command tries shells in order: `/bin/bash` → `/bin/ash` → `/bin/sh`. If a user argument is provided, it uses `su -l <user>` instead.
 
-`setup_container_env(NULL)` is called, which clears the environment and sets `PATH`, `TERM`, `HOME`, and `container`.
+### 9.4 Environment Setup
+
+The `enter` and `run` commands set a clean environment:
+- Standard `PATH`, `TERM=xterm-256color`, `HOME=/root`, `container=droidspaces`, `LANG=C.UTF-8`
+- Sources `/etc/environment` if present (with proper KEY=VALUE and quote handling)
+
+### 9.5 Run Command
+
+`run_in_rootfs()` follows the same namespace entry pattern but executes the user-specified command instead of a shell. If the command string contains spaces and is a single argument, it's wrapped with `/bin/sh -c`.
 
 ---
 
-## 10. Stop, Restart, and Timeout Handling
+## 10. Stop/Restart
 
 ### 10.1 Stop Sequence
 
 `stop_rootfs()` in `container.c`:
 
-**Step 1 — Firmware path cleanup:**
+**Step 1 — Resolve PID:**
+Read pidfile, validate with `kill(pid, 0)`. Capture rootfs path for firmware cleanup while the process is still alive.
+
+**Step 2 — Graceful shutdown:**
 ```c
-get_pid_rootfs_path(pid, root_path, sizeof(root_path));
-firmware_path_remove_rootfs(root_path);
+kill(pid, SIGRTMIN + 3);
 ```
+`SIGRTMIN+3` is the documented systemd signal for "halt immediately, don't shut down services". This is faster than running `poweroff` inside the container.
 
-**Step 2 — Graceful shutdown attempt via `poweroff`:**
-
-The code tries to run `poweroff` inside the container namespace by calling `run_in_rootfs(1, {"poweroff", NULL})` in a forked child. It waits up to 1 second for this to complete.
-
+**Step 3 — Wait with escalation:**
 ```c
-poweroff_pid = fork();
-if (poweroff_pid == 0) {
-    exit(run_in_rootfs(1, argv));
-}
-// Wait up to 1 second (10 * 100ms)
-for (int i = 0; i < 10; i++) {
-    pid_t ret = waitpid(poweroff_pid, NULL, WNOHANG);
-    if (ret == poweroff_pid) { poweroff_done = 1; break; }
-    usleep(100000);
-}
-if (!poweroff_done) {
-    kill(poweroff_pid, SIGKILL);
-    kill(pid, SIGTERM);  // Fall back to SIGTERM to init
+for (int i = 0; i < DS_STOP_TIMEOUT * 5; i++) {
+    if (kill(pid, 0) < 0 && errno == ESRCH) { stopped = 1; break; }
+    usleep(200000);  /* 200ms */
+    if (i == 10) {
+        kill(pid, SIGTERM);  /* Fallback after 2s */
+    }
 }
 ```
 
-**Commentary:** This is interesting — the code doesn't send `SIGRTMIN+3` (which is what systemd documents as "halt now"), nor does it send `SIGTERM` first. Instead, it runs `poweroff` inside the container, which tells init to shut down gracefully via the normal init flow. If that times out, it falls back to `SIGTERM`.
-
-**Step 3 — Wait for process exit (5 second timeout):**
+**Step 4 — Force kill:**
 ```c
-for (int i = 0; i < 50; i++) {           // 50 * 100ms = 5 seconds
-    pid_t ret = waitpid(pid, &status, WNOHANG);
-    if (ret == pid) break;                 // Exited
-    if (kill(pid, 0) < 0) break;           // Already dead
-    usleep(100000);
-}
-```
-
-**Step 4 — Force kill on timeout:**
-```c
-if (kill(pid, 0) == 0) {
+if (!stopped) {
     kill(pid, SIGKILL);
-    waitpid(pid, NULL, 0);
 }
 ```
 
-`SIGKILL` to the container's init PID is the nuclear option. It kills PID 1, which causes the kernel to tear down the entire PID namespace and kill all processes within it.
+`SIGKILL` to the container's init PID causes the kernel to tear down the entire PID namespace and kill all processes within it.
 
 **Step 5 — Cleanup:**
-- Remove pidfile from Pids directory
+```c
+cleanup_container_resources(cfg, 0, skip_unmount);
+```
+- `sync()` — flush filesystem buffers
+- Restore Android optimizations (`android_optimizations(0)`)
+- Remove firmware path entry
 - Unmount rootfs.img if applicable (unless `skip_unmount` for restart)
-- Remove `.hw` sidecar file
+- Remove `.mount` sidecar file
 - Remove pidfile
-- Call `android_optimizations(0)` to restore Android settings
 
 ### 10.2 Restart
 
-Restart is simply stop + start with a 1-second sleep in between:
+Restart is simply stop + start with the `skip_unmount` flag:
 
 ```c
-stop_rootfs(is_rootfs_img ? 1 : 0);  // skip_unmount for rootfs.img
-sleep(1);
-return start_rootfs();
+int restart_rootfs(struct ds_config *cfg) {
+    stop_rootfs(cfg, 1);  // skip_unmount to keep rootfs.img attached
+    return start_rootfs(cfg);
+}
 ```
-
-For rootfs.img, the mount path is preserved across the restart by reading it from the `.mount` sidecar file before stopping, then restoring it after.
 
 ### 10.3 Multi-Container Stop
 
@@ -831,7 +746,7 @@ The `--name` flag accepts comma-separated names:
 droidspaces --name=web,db,cache stop
 ```
 
-Each name is resolved to a pidfile and stopped individually via `stop_container_by_name()`.
+Each name is parsed with `strtok()`, a subcfg is created, and `stop_rootfs()` is called individually.
 
 ---
 
@@ -839,32 +754,17 @@ Each name is resolved to a pidfile and stopped individually via `stop_container_
 
 ### 11.1 Status Command
 
-`check_status()` reads the pidfile, gets the PID, checks `kill(pid, 0)`, and validates via `is_valid_container_pid()`:
-
-```c
-int check_status(pid_t *pid_out) {
-    read_file(g_pidfile, buf, sizeof(buf));
-    pid_t pid = atoi(buf);
-    if (kill(pid, 0) == 0 && is_valid_container_pid(pid)) {
-        *pid_out = pid;
-        return 1;  // Running
-    }
-    // Stale pidfile — clean up
-    unlink(g_pidfile);
-    return 0;  // Stopped
-}
-```
+`check_status()` resolves the pidfile (auto-detect if only one container running), reads the PID, validates with `kill(pid, 0)`, and checks `is_valid_container_pid()` (which reads `/proc/<pid>/root/run/systemd/container` for "droidspaces").
 
 ### 11.2 Info Command
 
 `show_info()` displays:
 - Host info (Android/Linux, architecture)
-- Feature flags (detected from the running container, not from CLI flags):
+- Feature flags (introspected from the running container, not from CLI flags):
   - SELinux status (read from `/sys/fs/selinux/enforce`)
   - IPv6 (read from `/proc/<pid>/root/proc/sys/net/ipv6/conf/all/disable_ipv6`)
-  - Android storage (check `/storage/emulated/0` mount in `/proc/<pid>/mounts`)
+  - Android storage (check `/storage/emulated/0` mount and verify `/storage/emulated/0/Android` exists in `/proc/<pid>/root`)
   - HW access (check `/dev` fstype in `/proc/<pid>/mounts` — `devtmpfs` = hw-access)
-  - Firmware path status
 - Container name, PID, OS info (from `/proc/<pid>/root/etc/os-release`)
 
 ### 11.3 Show Command
@@ -876,22 +776,20 @@ int check_status(pid_t *pid_out) {
 │ NAME         │ PID      │
 ├──────────────┼──────────┤
 │ ubuntu-24.04 │ 12345    │
-├──────────────┼──────────┤
 │ alpine-3.19  │ 23456    │
 └──────────────┴──────────┘
 ```
 
-It reads all `.pid` files from the Pids directory, validates each in parallel, and aggregates results.
+It reads all `.pid` files from the Pids directory, validates each PID, removes stale pidfiles, and renders a Unicode box-drawing table with dynamic column widths.
 
 ### 11.4 Scan Command
 
 `scan_containers()` scans *all* PIDs in `/proc` for processes that:
-1. Have `/etc/os-release` accessible via `/proc/<pid>/root/etc/os-release`
-2. Pass `is_valid_container_pid()` (have `/run/systemd/container` containing "droidspaces")
+1. Pass `is_valid_container_pid()` (have `/run/systemd/container` containing "droidspaces")
+2. Are init processes in their namespace (checked via `/proc/<pid>/status` NSpid field — last value is 1)
 3. Are not already tracked in the Pids directory
-4. Are not child processes of already-tracked containers (same rootfs)
 
-Found containers are automatically registered with auto-generated names.
+Found containers are automatically registered with auto-generated names from `/proc/<pid>/root/etc/os-release`.
 
 ---
 
@@ -902,8 +800,10 @@ Found containers are automatically registered with auto-generated names.
 The Makefile compiles with musl libc for maximum portability across Android devices:
 
 ```makefile
-CFLAGS = -Wall -Wextra -O2 -flto -std=gnu99 -Isrc -no-pie -pthread
+CFLAGS  = -Wall -Wextra -O2 -flto -std=gnu99 -Isrc -no-pie -pthread
+CFLAGS += -Wno-unused-parameter -Wno-unused-result
 LDFLAGS = -static -no-pie -flto -pthread
+LIBS    = -lutil
 ```
 
 Key flags:
@@ -911,12 +811,12 @@ Key flags:
 - **`-no-pie`**: Non-position-independent executable. Some Android kernels have issues with PIE static binaries.
 - **`-flto`**: Link-time optimization for smaller binary size.
 - **`-std=gnu99`**: GNU C99 dialect (needed for `_GNU_SOURCE` features).
-- **`-pthread`**: Thread support for the thread pool.
+- **`-lutil`**: Links `libutil` for `openpty()` support.
 
 ### Cross-Compilation
 
 Four architectures are supported:
-- `x86_64`: `musl-gcc`
+- `x86_64`: `x86_64-linux-musl-gcc`
 - `x86`: `i686-linux-musl-gcc`
 - `aarch64`: `aarch64-linux-musl-gcc`
 - `armhf`: `arm-linux-musleabihf-gcc`
@@ -925,45 +825,67 @@ Cross-compiler search order: `$MUSL_CROSS`, `~/toolchains/<triple>-cross/bin/`, 
 
 ### Output
 
-All binaries go to `output/droidspaces`. An `all-build` target creates architecture-specific binaries (`droidspaces-x86_64`, `droidspaces-aarch64`, etc.). Tarballs can be created for distribution.
+All binaries go to `output/droidspaces`. An `all-build` target creates architecture-specific binaries (`droidspaces-x86_64`, `droidspaces-aarch64`, etc.). The `all-tarball` target creates a unified distribution with all architectures in a single archive.
 
 ---
 
-## 13. Engineering Commentary: What Works, What's Broken, What Should Be Rewritten
+## 13. Data Structures
 
-### What Works Well
+### 13.1 struct ds_config
 
-1. **The namespace creation and pivot_root sequence is solid.** The double-fork pattern, the mount propagation setup (`MS_REC | MS_PRIVATE`), and the pivot_root with `.old_root` cleanup — this is textbook correct and matches how LXC does it.
+The central configuration struct, passed to every function (replaces all global variables from v2):
 
-2. **The UUID-based PID discovery is clever.** It solves a real problem (finding the grandchild PID after double-fork through unshare) without relying on fragile mechanisms like parsing `/proc/<pid>/status` for NSPid. The parallel scan is efficient.
+```c
+struct ds_config {
+    /* Paths */
+    char rootfs_path[PATH_MAX];       /* --rootfs=   */
+    char rootfs_img_path[PATH_MAX];   /* --rootfs-img= */
+    char pidfile[PATH_MAX];           /* --pidfile= or auto-resolved */
+    char container_name[256];         /* --name= or auto-generated */
+    char hostname[256];               /* --hostname= or container_name */
+    char uuid[DS_UUID_LEN + 1];       /* UUID for PID discovery */
 
-3. **The socketpair FD passing is clean.** Using `SCM_RIGHTS` to pass PTY master FDs from child to parent across the fork boundary is the right approach (though as discussed in Section 7, the *direction* of PTY allocation should be reversed).
+    /* Flags */
+    int foreground;                   /* --foreground */
+    int hw_access;                    /* --hw-access */
+    int enable_ipv6;                  /* --enable-ipv6 */
+    int android_storage;              /* --enable-android-storage */
+    int selinux_permissive;           /* --selinux-permissive */
+    char prog_name[64];               /* argv[0] for logging */
 
-4. **The sysfs mixed-mode mount (Section 4.3 Step 8) is excellent engineering.** Mounting a separate sysfs instance at `/sys/devices/virtual/net` (read-write) while the parent `/sys` is read-only gives networking tools what they need without exposing hardware to udevd.
+    /* Runtime state */
+    pid_t container_pid;              /* PID 1 of the container (host view) */
+    pid_t intermediate_pid;           /* intermediate fork pid */
+    int is_img_mount;                 /* 1 if rootfs was loop-mounted from .img */
+    char img_mount_point[PATH_MAX];   /* where the .img was mounted */
 
-5. **The multi-container support via auto-naming from os-release is user-friendly.** No need to specify container names manually.
+    /* Terminal (console + ttys) */
+    struct ds_tty_info console;
+    struct ds_tty_info ttys[DS_MAX_TTYS];
+    int tty_count;                    /* how many TTYs are active */
+};
+```
 
-### What Needs Improvement
+### 13.2 struct ds_tty_info
 
-1. **The TTY/PTY handling (Section 7.6).** As detailed above, this current approach of allocating PTYs inside the container, sending masters out, and holding them open in a daemon is fragile and should be replaced with the LXC model.
+```c
+struct ds_tty_info {
+    int master;            /* master fd (stays in parent/monitor) */
+    int slave;             /* slave fd (bind-mounted into container) */
+    char name[PATH_MAX];   /* slave device path (e.g. /dev/pts/3) */
+};
+```
 
-2. **The `[ds-monitor]` daemon.** A zombie-like process that sleeps in a `while(kill(pid, 0) == 0) sleep(60)` loop just to hold FDs open. If this process is killed, the container's TTYs die. This is a direct consequence of the backward PTY allocation direction.
+### 13.3 Constants
 
-3. **No signal handling before init launches.** Between `pivot_root` and `execve(/sbin/init)`, the process is vulnerable. If the parent sends a signal during this window, the container setup could be left in a half-initialized state.
-
-4. **Global state.** The codebase uses 8+ global variables (`g_rootfs_path`, `g_pidfile`, `g_foreground`, etc.). This makes the code harder to reason about and impossible to run multiple operations in a single process. A `struct container_config` would be cleaner.
-
-5. **Shell calls to `system()` in Android helpers.** Calls like `system("iptables -t filter -F 2>/dev/null")` bypass proper error handling and are susceptible to shell injection (though the arguments are all hardcoded, so this is more of a style issue).
-
-6. **The `run_in_rootfs` function duplicates 80% of `enter_rootfs`.** The namespace entry code is copied nearly verbatim. This should be factored into a shared `enter_namespace()` helper.
-
-7. **No SIGRTMIN+3 for systemd shutdown.** The stop sequence runs `poweroff` as a command inside the container, which works but is slower than sending `SIGRTMIN+3` directly to PID 1 (the documented signal for "halt now" in systemd).
-
-### What's Over-Engineered
-
-1. **Thread pool for requirements checking.** The `check` command parallelizes 14 simple checks (most of which are just `access()` or `grep_file()`) across a thread pool. Each check takes microseconds. The thread creation overhead is larger than the checks themselves. This is a premature optimization that adds complexity for zero measurable benefit.
-
-2. **Thread pool for UUID scanning.** For a typical Android system with < 500 processes, scanning PIDs serially takes < 10ms. Parallelizing this across 8 threads adds complexity with minimal improvement.
+| Constant | Value | Purpose |
+|---|---|---|
+| `DS_MAX_TTYS` | 6 | Maximum TTY devices per container |
+| `DS_UUID_LEN` | 32 | UUID hex string length |
+| `DS_MAX_CONTAINERS` | 1024 | Maximum auto-naming suffix |
+| `DS_STOP_TIMEOUT` | 8 | Seconds before SIGKILL |
+| `DS_PID_SCAN_RETRIES` | 20 | UUID scan retry count |
+| `DS_PID_SCAN_DELAY_US` | 200000 | 200ms between retries |
 
 ---
 
@@ -973,7 +895,7 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 
 ### Phase 1: Configuration
 
-1. Parse CLI arguments into a `struct container_config`:
+1. Parse CLI arguments into a `struct ds_config`:
    - `rootfs_path` or `rootfs_img_path`
    - `container_name` (auto-generate from os-release if not provided)
    - `hostname`
@@ -991,83 +913,80 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 
 6. Generate UUID (32 hex chars from `/dev/urandom`)
 
-7. If `rootfs.img`: `e2fsck -f -y <img>`, then `mount -t ext4 -o loop,rw,noatime <img> /mnt/Droidspaces/<N>`
+7. If `rootfs.img`: `e2fsck -f -y <img>`, then `mount -o loop <img> /mnt/Droidspaces/<N>`
 
-8. Write UUID to `<rootfs>/.droidspaces-uuid`
+8. **Allocate PTYs in the parent** (LXC model):
+   - `openpty()` × (1 console + N TTYs)
+   - Record slave names (e.g., `/dev/pts/0`, `/dev/pts/1`, ...)
+   - Mark all FDs `FD_CLOEXEC`
 
-9. Create socketpair for console FD passing: `socketpair(AF_UNIX, SOCK_STREAM, 0, sock)`
+9. Create sync pipe for PID communication
 
-10. **Allocate PTYs in the parent** (LXC model — do NOT allocate inside the container):
-    - `openpty()` × (1 console + N TTYs)
-    - Record slave names (e.g., `/dev/pts/0`, `/dev/pts/1`, ...)
+10. Android optimizations: `max_phantom_processes`, disable `deviceidle`
 
-11. Android optimizations: `max_phantom_processes`, disable `deviceidle`, `remount /data suid`
+### Phase 3: Fork Monitor + Fork Init
 
-12. `prctl(PR_SET_CHILD_SUBREAPER, 1)` — adopt orphaned grandchildren
+11. `fork()` → monitor process
 
-13. `write_file("/proc/sys/net/ipv4/ip_forward", "1")`
+12. In monitor: `setsid()`, `prctl(PR_SET_NAME, "[ds-monitor]")`, `unshare(CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID)`
 
-### Phase 3: Fork + Unshare + Fork (namespace creation)
+13. `fork()` again → PID 1 child (this is the process that becomes init)
 
-14. `fork()` → intermediate child
+14. Monitor sends `init_pid` to parent via sync pipe
 
-15. In intermediate: `setsid()`, `unshare(CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID)`
-
-16. `fork()` again → PID 1 child (this is the process that becomes init)
-
-17. Intermediate: `waitpid(pid1_child)` and proxy exit status
+15. Monitor: `waitpid(init_pid)`, then `cleanup_container_resources()`, then exit
 
 ### Phase 4: internal_boot() (runs as PID 1)
 
-18. `mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)` — prevent mount propagation
+16. `unshare(CLONE_NEWNS)` — own mount namespace
 
-19. Bind mount rootfs to itself (directory mode only): `mount(rootfs, rootfs, NULL, MS_BIND, NULL)`
+17. `mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL)` — prevent mount propagation
 
-20. `chdir(rootfs)`
+18. Bind mount rootfs to itself: `mount(rootfs, rootfs, NULL, MS_BIND | MS_REC, NULL)`
 
-21. Read and delete `.droidspaces-uuid`
+19. `chdir(rootfs)`
 
-22. `mkdir(".old_root", 0755)`
+20. `mkdir(".old_root", 0755)`
 
-23. Setup `/dev`:
-    - Without `--hw-access`: `mount("none", "<rootfs>/dev", "tmpfs", ...)` + `mknod()` for null, zero, full, random, urandom, tty, console, net/tun, fuse
-    - With `--hw-access`: `mount("dev", "<rootfs>/dev", "devtmpfs", ...)`, clean conflicting nodes, then recreate with `mknod()`
+21. Setup `/dev`:
+    - Without `--hw-access`: `mount("none", "<rootfs>/dev", "tmpfs", ...)` + `mknod()` for null, zero, full, random, urandom, tty, console, ptmx, net/tun, fuse
+    - With `--hw-access`: `mount("devtmpfs", "<rootfs>/dev", "devtmpfs", ...)`, unlink conflicting nodes, then recreate with `mknod()`
 
-24. `mount("proc", "proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL)`
+22. `mount("proc", "proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL)`
 
-25. Mount sysfs:
+23. Mount sysfs:
     - Without `--hw-access`: mount RW → mount separate sysfs at `sys/devices/virtual/net` → remount parent RO
     - With `--hw-access`: mount RW
 
-26. `mount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, "mode=755")`
+24. `mount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=755")`
 
-27. `write_file("run/<uuid>", "")` — UUID marker for PID discovery
+25. **Bind-mount PTY slaves** from parent:
+    - `mount(cfg->console.name, "dev/console", NULL, MS_BIND, NULL)`
+    - `mount(cfg->ttys[i].name, "dev/tty<N>", NULL, MS_BIND, NULL)` for each TTY
 
-28. Configure networking (host side): DNS, routing, iptables
+26. `write_file("run/<uuid>", "init")` — UUID marker for PID discovery/boot confirmation
 
-29. Setup cgroups: tmpfs at `sys/fs/cgroup`, then `cgroup` mounts for `devices` and `systemd`
+27. Setup cgroups: detect v2 or fall back to v1 with individual controllers
 
-30. Optional: bind mount Android storage
+28. Optional: bind mount Android storage
 
-31. **`syscall(SYS_pivot_root, ".", ".old_root")`**
+29. **`syscall(SYS_pivot_root, ".", ".old_root")`**
 
-32. `chdir("/")`
+30. `chdir("/")`
 
-33. `mount("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC, "gid=5,newinstance,ptmxmode=0666,mode=0620")`
+31. `mount("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC, "gid=5,newinstance,ptmxmode=0666,mode=0620")`
 
-34. Setup `/dev/ptmx`: bind mount `/dev/pts/ptmx` → `/dev/ptmx`
+32. Setup `/dev/ptmx`: bind mount `/dev/pts/ptmx` → `/dev/ptmx`
 
-35. **Receive PTY slave names from parent** (or if using LXC model: bind-mount the PTY slaves passed from parent to `/dev/console` and `/dev/ttyN`)
+33. Configure networking (rootfs side): hostname, DNS, resolv.conf, Android groups
 
-36. Configure networking (rootfs side): hostname, DNS, resolv.conf, Android groups
+34. `umount2("/.old_root", MNT_DETACH)`, `rmdir("/.old_root")`
 
-37. `write_file("/run/systemd/container", "droidspaces\n")`
+35. `write_file("/run/systemd/container", "droidspaces")`
 
-38. `clearenv()`, set `PATH`, `TERM`, `HOME`, `container`, `container_ttys`
+36. `clearenv()`, set `PATH`, `TERM`, `HOME`, `container`, `container_ttys`
 
-39. `umount2("/.old_root", MNT_DETACH)`, `rmdir("/.old_root")`
-
-40. Redirect stdio:
+37. Redirect stdio:
     ```c
     int fd = open("/dev/console", O_RDWR);
     dup2(fd, 0); dup2(fd, 1); dup2(fd, 2);
@@ -1075,43 +994,46 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
     ioctl(0, TIOCSCTTY, 0);
     ```
 
-41. `execve("/sbin/init", {"init", NULL}, environ)`
+38. `execve("/sbin/init", {"init", NULL}, environ)`
 
 ### Phase 5: Parent — Post-Fork
 
-42. Receive any needed information from child (e.g., confirmation of setup)
+39. Read `init_pid` from sync pipe
 
-43. UUID scan: scan `/proc/*/root/run/<uuid>` to find container init PID
+40. Configure host-side networking (ip_forward, IPv6, DNS file, iptables)
 
-44. Save PID to pidfile
+41. Save PID to pidfile
 
-45. If foreground: enter console monitor loop (epoll: stdin↔pty_master, signalfd for SIGCHLD/SIGINT/SIGTERM/SIGWINCH)
+42. If foreground: enter console monitor loop (epoll: stdin↔pty_master, signalfd for SIGCHLD/SIGINT/SIGTERM/SIGWINCH)
 
-46. If background: fork daemon to hold master FDs (or better: just hold them in the parent if it stays alive)
+43. If background: show info and exit (monitor process handles cleanup)
 
 ### Phase 6: Stop
 
-47. Read PID from pidfile, validate
+44. Read PID from pidfile, validate
 
-48. Send `poweroff` command inside container (or better: `kill(pid, SIGRTMIN+3)` for systemd, `kill(pid, SIGTERM)` for openrc)
+45. `kill(pid, SIGRTMIN + 3)` for systemd
 
-49. Wait up to 5 seconds with `WNOHANG` polling
+46. Wait up to 8 seconds with 200ms polling
 
-50. If still alive: `kill(pid, SIGKILL)`, `waitpid(pid, NULL, 0)`
+47. Escalate to `SIGTERM` after 2 seconds
 
-51. Cleanup: remove pidfile, unmount rootfs.img, restore firmware path, restore Android settings
+48. If still alive: `kill(pid, SIGKILL)`
+
+49. Cleanup: remove pidfile, unmount rootfs.img, restore firmware path, restore Android settings
 
 ### Phase 7: Enter
 
-52. Read PID from pidfile
-53. Open `/proc/<pid>/ns/{mnt,uts,ipc,pid}`
-54. `setns()` for each
-55. `fork()` (required after `setns(CLONE_NEWPID)`)
-56. `setup_container_env()`
-57. `execve()` shell: try `/bin/bash`, `/bin/ash`, `/bin/sh`
+50. Read PID from pidfile
+51. Open `/proc/<pid>/ns/{mnt,uts,ipc,pid}` — all FDs at once
+52. `setns()` for each
+53. `fork()` (required after `setns(CLONE_NEWPID)`)
+54. In child: `fork()` again to actually be in the new PID namespace
+55. `clearenv()`, set environment, source `/etc/environment`
+56. `execve()` shell: try `/bin/bash`, `/bin/ash`, `/bin/sh`
 
 ---
 
 **End of Document**
 
-*This document was written by analyzing v2.8.0 of the Droidspaces source code — approximately 4,700 lines of C across 19 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
+*This document was written by analyzing v3.1.1 of the Droidspaces source code — approximately 3,100 lines of C across 12 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
