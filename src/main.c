@@ -118,11 +118,12 @@ int main(int argc, char **argv) {
       return 0;
     case '?':
       if (optopt)
-        ds_error("Unrecognized option: -%c", optopt);
+        ds_error(C_BOLD "Unrecognized option:" C_RESET " -%c", optopt);
       else
-        ds_error("Unrecognized option: %s", argv[optind - 1]);
+        ds_error(C_BOLD "Unrecognized option:" C_RESET " %s", argv[optind - 1]);
       printf("\n");
-      ds_log("Use --help for usage information.");
+      ds_log("Use " C_BOLD "%s --help" C_RESET " for usage information.",
+             argv[0]);
       return 1;
     default:
       return 1;
@@ -130,9 +131,11 @@ int main(int argc, char **argv) {
   }
 
   if (optind >= argc) {
-    ds_error("Missing command (e.g., start, stop, enter, show)");
+    ds_error(C_BOLD "Missing command" C_RESET
+                    " (e.g., start, stop, enter, show)");
     printf("\n");
-    ds_log("Use --help for usage information.");
+    ds_log("Use " C_BOLD "%s --help" C_RESET " for usage information.",
+           argv[0]);
     return 1;
   }
 
@@ -164,9 +167,10 @@ int main(int argc, char **argv) {
   }
 
   if (!found) {
-    ds_error("Unknown command: %s", cmd);
+    ds_error(C_BOLD "Unknown command:" C_RESET " %s", cmd);
     printf("\n");
-    ds_log("Use --help for usage information.");
+    ds_log("Use " C_BOLD "%s --help" C_RESET " for usage information.",
+           argv[0]);
     return 1;
   }
 
