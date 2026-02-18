@@ -95,17 +95,35 @@ int setup_dev(const char *rootfs, int hw_access) {
   if (hw_access) {
     /* If hw_access is enabled, we mount host's devtmpfs.
      * WARNING: This is insecure but provides full hardware access. */
-    return domount("devtmpfs", dev_path, "devtmpfs", MS_NOSUID | MS_NOEXEC,
-                   NULL);
+    if (domount("devtmpfs", dev_path, "devtmpfs", MS_NOSUID | MS_NOEXEC,
+                "mode=755") == 0) {
+      /* Even with devtmpfs, we MUST isolate critical devices that systemd
+       * or pty management depends on. Unlink them so create_devices()
+       * can recreate them safely. */
+      const char *conflicts[] = {"console", "tty",     "full", "null", "zero",
+                                 "random",  "urandom", "ptmx", NULL};
+      for (int i = 0; conflicts[i]; i++) {
+        char path[PATH_MAX];
+        snprintf(path, sizeof(path), "%s/%s", dev_path, conflicts[i]);
+        /* Unmount if it was somehow bind-mounted */
+        umount2(path, MNT_DETACH);
+        unlink(path);
+      }
+    } else {
+      ds_warn("Failed to mount devtmpfs, falling back to tmpfs");
+      if (domount("none", dev_path, "tmpfs", MS_NOSUID | MS_NOEXEC,
+                  "size=8M,mode=755") < 0)
+        return -1;
+    }
   } else {
     /* Secure isolated /dev using tmpfs */
     if (domount("none", dev_path, "tmpfs", MS_NOSUID | MS_NOEXEC,
-                "size=4M,mode=755") < 0)
+                "size=8M,mode=755") < 0)
       return -1;
-
-    /* Create minimal set of device nodes */
-    return create_devices(rootfs);
   }
+
+  /* Create minimal set of device nodes (creates secure console/ptmx/etc.) */
+  return create_devices(rootfs);
 }
 
 int create_devices(const char *rootfs) {
@@ -145,7 +163,28 @@ int create_devices(const char *rootfs) {
     }
   }
 
-  /* 2. Create tty1...N nodes (mount targets for PTYs) */
+  /* 2. Create /dev/net/tun if possible */
+  snprintf(path, sizeof(path), "%s/dev/net", rootfs);
+  mkdir(path, 0755);
+  snprintf(path, sizeof(path), "%s/dev/net/tun", rootfs);
+  unlink(path);
+  if (mknod(path, S_IFCHR | 0666, makedev(10, 200)) < 0) {
+    /* Fallback to bind mount if mknod fails */
+    bind_mount("/dev/net/tun", path);
+  } else {
+    chmod(path, 0666);
+  }
+
+  /* 3. Create /dev/fuse if possible */
+  snprintf(path, sizeof(path), "%s/dev/fuse", rootfs);
+  unlink(path);
+  if (mknod(path, S_IFCHR | 0666, makedev(10, 229)) < 0) {
+    bind_mount("/dev/fuse", path);
+  } else {
+    chmod(path, 0666);
+  }
+
+  /* 4. Create tty1...N nodes (mount targets for PTYs) */
   for (int i = 1; i <= DS_MAX_TTYS; i++) {
     snprintf(path, sizeof(path), "%s/dev/tty%d", rootfs, i);
     if (access(path, F_OK) != 0) {
@@ -168,10 +207,54 @@ int create_devices(const char *rootfs) {
 }
 
 int setup_devpts(void) {
-  mkdir("/dev/pts", 0755);
-  /* Use newinstance flag to get private PTY namespace */
-  return domount("devpts", "/dev/pts", "devpts", MS_NOSUID | MS_NOEXEC,
-                 "newinstance,ptmxmode=0666,mode=0620,gid=5");
+  const char *pts_path = "/dev/pts";
+
+  /* Unmount any existing devpts instance first */
+  umount2(pts_path, MNT_DETACH);
+
+  /* Create mountpoint */
+  mkdir(pts_path, 0755);
+
+  /* Try mounting devpts with newinstance flag (CRITICAL for private PTYs) */
+  const char *opts[] = {"gid=5,newinstance,ptmxmode=0666,mode=0620",
+                        "newinstance,ptmxmode=0666,mode=0620",
+                        "gid=5,newinstance,mode=0620",
+                        "newinstance,ptmxmode=0666",
+                        "newinstance",
+                        NULL};
+
+  for (int i = 0; opts[i]; i++) {
+    if (domount("devpts", pts_path, "devpts", MS_NOSUID | MS_NOEXEC, opts[i]) ==
+        0) {
+      /* Setup /dev/ptmx to point to the new pts/ptmx */
+      const char *ptmx_path = "/dev/ptmx";
+      const char *pts_ptmx = "/dev/pts/ptmx";
+
+      /* Remove any existing node */
+      unlink(ptmx_path);
+
+      /* Method 1: Bind mount (preferred for systemd/udev) */
+      /* Create a dummy file to act as mount target */
+      if (write_file(ptmx_path, "") == 0) {
+        if (mount(pts_ptmx, ptmx_path, NULL, MS_BIND, NULL) == 0) {
+          return 0;
+        }
+      }
+
+      /* Method 2: Symlink (fallback) */
+      unlink(ptmx_path);
+      if (symlink("pts/ptmx", ptmx_path) == 0) {
+        return 0;
+      }
+
+      /* If ptmx setup failed but devpts is mounted, we're still better off */
+      ds_warn("Failed to virtualize /dev/ptmx, PTYs might not work");
+      return 0;
+    }
+  }
+
+  ds_error("Failed to mount devpts with newinstance flag");
+  return -1;
 }
 
 int setup_cgroups(void) {
