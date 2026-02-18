@@ -50,17 +50,19 @@ int internal_boot(struct ds_config *cfg) {
    * (needed for Docker, WireGuard, Tailscale, SSH, etc.).
    * With --hw-access, allow read-write access for full hardware control. */
   mkdir("sys", 0755);
-  if (cfg->hw_access) {
-    /* Full hardware access: mount sysfs read-write */
-    domount("sysfs", "sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
-  } else {
-    /* Hardware isolation: mixed mode
-     * Step 1: Mount sysfs read-write initially */
-    domount("sysfs", "sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+  domount("sysfs", "sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
 
-    /* Step 2: Create directory structure and mount new sysfs instance at
-     * /sys/devices/virtual/net (read-write). This must be done BEFORE
-     * remounting the parent /sys as read-only. */
+  if (cfg->hw_access) {
+    /* Create writable holes for hardware access BEFORE remounting /sys RO.
+     * We use separate sysfs instances for these to keep them RW. */
+    const char *rw_paths[] = {"sys/devices", "sys/bus", "sys/class", NULL};
+    for (int i = 0; rw_paths[i]; i++) {
+      mkdir(rw_paths[i], 0755);
+      domount("sysfs", rw_paths[i], "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC,
+              NULL);
+    }
+  } else {
+    /* Hardware isolation: network only mixed mode */
     mkdir("sys/devices", 0755);
     mkdir("sys/devices/virtual", 0755);
     mkdir("sys/devices/virtual/net", 0755);
@@ -70,13 +72,19 @@ int internal_boot(struct ds_config *cfg) {
       ds_warn("Failed to mount sysfs at sys/devices/virtual/net "
               "(networking may be limited)");
     }
+  }
 
-    /* Step 3: Remount entire /sys as read-only (prevents hardware
-     * interference). The subdirectory mount at /sys/devices/virtual/net remains
-     * read-write as a separate mount point. */
-    if (mount(NULL, "sys", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) < 0) {
-      ds_warn("Failed to remount /sys as read-only: %s", strerror(errno));
-    }
+  /* CRITICAL: Remount entire /sys as read-only. This is the official systemd
+   * indicator that it is running in a container. Without this, systemd 258+
+   * tries to 'resolve' /dev/console to a host TTY, leading to Loop. */
+  if (mount(NULL, "sys", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) < 0) {
+    ds_warn("Failed to remount /sys as read-only: %s", strerror(errno));
+  }
+
+  /* Mask the console discovery file to prevent resolution back to host */
+  if (mount("/dev/null", "sys/class/tty/console/active", NULL, MS_BIND, NULL) <
+      0) {
+    /* File might not exist yet if sysfs is partially populated */
   }
 
   mkdir("run", 0755);
@@ -141,6 +149,9 @@ int internal_boot(struct ds_config *cfg) {
   if (console_fd >= 0) {
     ds_terminal_set_stdfds(console_fd);
     ds_terminal_make_controlling(console_fd);
+    /* Sticky permissions again just in case systemd's TTYReset stripped them */
+    fchmod(console_fd, 0620);
+    fchown(console_fd, 0, 5);
     if (console_fd > 2)
       close(console_fd);
   }
