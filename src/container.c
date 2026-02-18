@@ -217,6 +217,18 @@ int start_rootfs(struct ds_config *cfg) {
                                    cfg->container_pid);
     return ret;
   } else {
+    /* Wait for container to finish pivot_root before showing info.
+     * The boot sequence writes /run/droidspaces after pivot_root,
+     * so we poll for it via /proc/<pid>/root/run/droidspaces. */
+    char marker[PATH_MAX];
+    snprintf(marker, sizeof(marker), "/proc/%d/root/run/droidspaces",
+             cfg->container_pid);
+    for (int i = 0; i < 50; i++) { /* 5 seconds max */
+      if (access(marker, F_OK) == 0)
+        break;
+      usleep(100000); /* 100ms */
+    }
+    show_info(cfg);
     ds_log("Container %s is running in background.", cfg->container_name);
     if (is_android()) {
       ds_log("Use 'su -c \"%s --name=%s enter\"' to connect.", cfg->prog_name,
@@ -561,27 +573,131 @@ int run_in_rootfs(struct ds_config *cfg, int argc __attribute__((unused)),
  * Other operations
  * ---------------------------------------------------------------------------*/
 
-int show_info(struct ds_config *cfg) {
-  pid_t pid;
-  if (check_status(cfg, &pid) < 0)
-    return -1;
+static const char *get_architecture(void) {
+  static struct utsname uts;
+  if (uname(&uts) != 0)
+    return "unknown";
 
-  char rootfs[PATH_MAX] = "";
-  char root_link[PATH_MAX];
-  snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
-  if (readlink(root_link, rootfs, sizeof(rootfs) - 1) < 0) {
-    /* Ignore error, rootfs will be empty string */
+  if (strcmp(uts.machine, "x86_64") == 0)
+    return "x86_64";
+  if (strcmp(uts.machine, "aarch64") == 0 || strcmp(uts.machine, "arm64") == 0)
+    return "aarch64";
+  if (strncmp(uts.machine, "arm", 3) == 0)
+    return "arm";
+  if (strcmp(uts.machine, "i686") == 0 || strcmp(uts.machine, "i386") == 0)
+    return "x86";
+  return uts.machine;
+}
+
+static void get_container_os_pretty(pid_t pid, char *buf, size_t size) {
+  if (!buf || size == 0)
+    return;
+  buf[0] = '\0';
+
+  char path[PATH_MAX];
+  if (build_proc_root_path(pid, "/etc/os-release", path, sizeof(path)) != 0)
+    return;
+
+  FILE *fp = fopen(path, "r");
+  if (!fp)
+    return;
+
+  char line[512];
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
+      char *val = line + 12;
+      size_t len = strlen(val);
+      while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '"'))
+        val[--len] = '\0';
+      if (val[0] == '"') {
+        val++;
+        len--;
+      }
+      if (len >= size)
+        len = size - 1;
+      snprintf(buf, size, "%.*s", (int)len, val);
+      break;
+    }
   }
+  fclose(fp);
+}
 
-  printf("\n" C_BOLD "Container Information:" C_RESET "\n");
-  printf("  Name:      %s\n", cfg->container_name);
-  printf("  Init PID:  %d\n", pid);
-  printf("  Rootfs:    %s\n", rootfs);
-  printf("  IPv6:      %s\n",
-         detect_ipv6_in_container(pid) ? "Enabled" : "Disabled");
-  printf("  SELinux:   %s\n",
-         android_get_selinux_status() == 0 ? "Permissive" : "Enforcing");
-  printf("\n");
+int show_info(struct ds_config *cfg) {
+  /* Host info */
+  const char *host = is_android() ? "Android" : "Linux";
+  const char *arch = get_architecture();
+  printf("\n" C_GREEN "Host:" C_RESET " %s %s\n\n", host, arch);
+
+  /* Container status */
+  pid_t pid = 0;
+  check_status(cfg, &pid);
+
+  if (pid > 0) {
+    /* Feature flags (introspected from the live container) */
+    printf(C_GREEN "Features:" C_RESET "\n");
+
+    /* SELinux */
+    if (access("/sys/fs/selinux/enforce", R_OK) == 0) {
+      const char *sel =
+          android_get_selinux_status() == 0 ? "Permissive" : "Enforcing";
+      printf("  SELinux: %s\n", sel);
+    }
+
+    /* IPv6 */
+    printf("  IPv6: %s\n",
+           detect_ipv6_in_container(pid) ? "enabled" : "disabled");
+
+    /* Android storage */
+    printf("  Android storage: %s\n",
+           detect_android_storage_in_container(pid) ? "enabled" : "disabled");
+
+    /* HW access */
+    int hw = detect_hw_access_in_container(pid);
+    if (hw)
+      printf("  " C_RED "HW access:" C_RESET " enabled\n");
+    else
+      printf("  HW access: disabled\n");
+
+    printf("\n");
+    printf(C_GREEN "Container:" C_RESET " RUNNING (PID: %d)\n", pid);
+
+    if (cfg->container_name[0])
+      printf("  Name: %s\n", cfg->container_name);
+
+    char pretty[256];
+    get_container_os_pretty(pid, pretty, sizeof(pretty));
+    if (pretty[0])
+      printf("  OS: %s\n", pretty);
+
+    printf("\n");
+  } else {
+    printf(C_RED "Container:" C_RESET " STOPPED\n");
+
+    /* Best effort: read os-release from rootfs path */
+    if (cfg->rootfs_path[0]) {
+      char path[PATH_MAX];
+      snprintf(path, sizeof(path), "%s/etc/os-release", cfg->rootfs_path);
+      FILE *fp = fopen(path, "r");
+      if (fp) {
+        char line[512];
+        while (fgets(line, sizeof(line), fp)) {
+          if (strncmp(line, "PRETTY_NAME=", 12) == 0) {
+            char *val = line + 12;
+            size_t len = strlen(val);
+            while (len > 0 && (val[len - 1] == '\n' || val[len - 1] == '"'))
+              val[--len] = '\0';
+            if (val[0] == '"') {
+              val++;
+              len--;
+            }
+            printf("  Rootfs OS: %.*s\n\n", (int)len, val);
+            break;
+          }
+        }
+        fclose(fp);
+      }
+    }
+  }
 
   return 0;
 }

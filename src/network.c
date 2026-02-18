@@ -32,9 +32,14 @@ int fix_networking_host(struct ds_config *cfg) {
   /* Enable IPv4 forwarding */
   write_file("/proc/sys/net/ipv4/ip_forward", "1");
 
-  /* Enable IPv6 forwarding if requested */
+  /* IPv6: default disabled unless explicitly enabled via --enable-ipv6 */
   if (cfg->enable_ipv6) {
+    write_file("/proc/sys/net/ipv6/conf/all/disable_ipv6", "0");
+    write_file("/proc/sys/net/ipv6/conf/default/disable_ipv6", "0");
     write_file("/proc/sys/net/ipv6/conf/all/forwarding", "1");
+  } else {
+    write_file("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
+    write_file("/proc/sys/net/ipv6/conf/default/disable_ipv6", "1");
   }
 
   /* Get DNS (Android props -> Host /etc/resolv.conf -> Google/Cloudflare) */

@@ -37,6 +37,7 @@
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
 #include <termios.h>
@@ -194,6 +195,10 @@ int setup_devpts(void);
 int setup_cgroups(void);
 int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size);
 int unmount_rootfs_img(const char *mount_point);
+int get_container_mount_fstype(pid_t pid, const char *path, char *fstype,
+                               size_t size);
+int detect_android_storage_in_container(pid_t pid);
+int detect_hw_access_in_container(pid_t pid);
 
 /* ---------------------------------------------------------------------------
  * network.c
