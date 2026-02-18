@@ -1,5 +1,6 @@
 # Droidspaces v3 — Build system
-# Static compilation with musl libc for Android/Linux portability
+# Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
+# SPDX-License-Identifier: GPL-3.0-or-later
 
 BINARY_NAME = droidspaces
 SRC_DIR     = src

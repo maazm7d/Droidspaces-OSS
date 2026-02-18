@@ -1,6 +1,8 @@
 /*
- * Droidspaces v3 — Linux container runtime for Android and Linux
- * Master header file
+ * Droidspaces v3 — High-performance Container Runtime
+ *
+ * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef DROIDSPACE_H

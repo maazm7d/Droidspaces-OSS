@@ -1,5 +1,8 @@
 /*
- * Droidspaces v3 — Console monitor (epoll loop)
+ * Droidspaces v3 — High-performance Container Runtime
+ *
+ * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "droidspace.h"

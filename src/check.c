@@ -1,6 +1,8 @@
 /*
- * Droidspaces v3 — System requirements checker
- * Refined for accuracy and matching v2 output style
+ * Droidspaces v3 — High-performance Container Runtime
+ *
+ * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #include "droidspace.h"
