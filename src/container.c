@@ -123,7 +123,10 @@ int start_rootfs(struct ds_config *cfg) {
     ds_die("Too many containers running with similar names");
   safe_strncpy(cfg->container_name, final_name, sizeof(cfg->container_name));
 
-  /* cfg->hostname remains empty if not defined, letting container decide */
+  /* If no hostname specified, default to container name */
+  if (cfg->hostname[0] == '\0') {
+    safe_strncpy(cfg->hostname, cfg->container_name, sizeof(cfg->hostname));
+  }
 
   generate_uuid(cfg->uuid, sizeof(cfg->uuid));
 

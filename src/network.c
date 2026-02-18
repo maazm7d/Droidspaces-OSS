@@ -86,11 +86,14 @@ int fix_networking_rootfs(struct ds_config *cfg) {
 
   /* 2. /etc/hosts */
   char hosts_content[1024];
+  const char *hostname = (cfg->hostname[0]) ? cfg->hostname : "localhost";
   snprintf(hosts_content, sizeof(hosts_content),
            "127.0.0.1\tlocalhost\n"
+           "127.0.1.1\t%s\n"
            "::1\t\tlocalhost ip6-localhost ip6-loopback\n"
-           "127.0.1.1\t%.256s\n",
-           cfg->hostname);
+           "ff02::1\t\tip6-allnodes\n"
+           "ff02::2\t\tip6-allrouters\n",
+           hostname);
   write_file("/etc/hosts", hosts_content);
 
   /* 3. resolv.conf (Android DNS from host via .dns_servers) */
