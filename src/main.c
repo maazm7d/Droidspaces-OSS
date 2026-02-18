@@ -12,7 +12,7 @@
  * ---------------------------------------------------------------------------*/
 
 void print_usage(void) {
-  printf("\n" C_BOLD
+  printf(C_BOLD
          "%s v%s — High-performance Container Runtime for Android/Linux" C_RESET
          "\n",
          DS_PROJECT_NAME, DS_VERSION);
@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
       cfg.selinux_permissive = 1;
       break;
     case 'v':
+      printf("\n");
       print_usage();
       return 0;
     case '?':
@@ -143,6 +144,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (strcmp(cmd, "help") == 0) {
+    printf("\n");
     print_usage();
     return 0;
   }
