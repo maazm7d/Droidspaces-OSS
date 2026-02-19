@@ -63,7 +63,9 @@ src/
 - **Security & De-duplication:** Environment setup, `os-release` parsing, and path resolution are consolidated into shared helpers with strict buffer bounds (`snprintf` with precision) and hardened I/O (`write_all`).
 - **Volatile Overlay Mode:** Leverages Linux OverlayFS to store all container changes in RAM, ensuring an ephemeral environment that is wiped on exit.
 - **Custom Bind Mounts:** Allows mapping host directories into the container at arbitrary mount points with automatic destination creation.
+- **Security Hardening (v3.2.2+):** Implemented strict path-traversal protection for bind mounts using a `realpath`-based `is_subpath()` helper to prevent container escapes.
 - **Strict Naming Architecture:** Enforces mandatory `--name` for image-based containers to ensure host-side mount points and PID files are perfectly synchronized and descriptive.
+- **CLI UX Refinement:** Restored flag permutation for the `enter` command, allowing flags like `-n` to be placed anywhere in the command string.
 
 
 ---
@@ -260,7 +262,7 @@ When `--volatile` (`-V`) is used, Droidspaces wraps the rootfs in an ephemeral w
    - **Lowerdir**: The original rootfs (or RO image mount).
    - **Upperdir/Workdir**: Managed in a dedicated `tmpfs` mounted at the Volatile workspace path.
     - **Merged View**: Mounts the OverlayFS to `<workspace>/merged`.
-    - **SELinux Fix (Android)**: On Android, the overlay is mounted with `context="u:object_r:tmpfs:s0"` to allow standard write operations within the upperdir.
+- **SELinux Fix (Android)**: On Android, the overlay is mounted using the `DS_ANDROID_TMPFS_CONTEXT` macro (default: `u:object_r:tmpfs:s0`) in `droidspace.h` to allow standard write operations within the upperdir.
 5. **Redirection**: The configuration's `rootfs_path` is updated to point to this merged view for the duration of the boot.
 
 All file modifications happen in the `tmpfs`-backed `upperdir`. On container exit, the monitor process unmounts the overlay and recursively deletes the workspace, ensuring no changes persist. Droidspaces ensures that the overlay is cleaned up *before* the underlying rootfs image is unmounted.
@@ -300,7 +302,9 @@ setup_custom_binds(cfg, cfg->rootfs_path);
 ```
 Iterates through `--bind-mount` entries and performs recursive bind mounts from host to container. It uses `mkdir_p` to automatically create parent directories inside the rootfs if they don't exist. 
 
-**Resilience (v3.2.0+)**: If a host source path is missing or the mount fails, Droidspaces issues a warning and skips the specific entry rather than failing the entire boot sequence ("soft-fail" model).
+**Resilience (v3.2.0+)**: If a host source path is missing or the mount fails, Droidspaces issues a warning and skips the specific entry rather than failing the entire boot sequence ("soft-fail" model). 
+
+**Security Hardening (v3.2.2+)**: To prevent path-traversal escapes, Droidspaces validates both the command-line arguments and the final resolved mount target. The `is_subpath(rootfs, tgt)` helper uses `realpath()` to ensure that even with malicious symlinks in the rootfs, a bind mount cannot be used to mount a host resource over a path outside the container's root.
 ```c
 chdir(cfg->rootfs_path);
 ```
