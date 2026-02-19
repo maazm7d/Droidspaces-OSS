@@ -437,7 +437,8 @@ int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
  * Rootfs Image Handling
  * ---------------------------------------------------------------------------*/
 
-int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size) {
+int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
+                     int readonly) {
   if (find_available_mountpoint(mount_point, mp_size) < 0) {
     ds_error("Failed to find available mount point in %s",
              DS_IMG_MOUNT_ROOT_UNIVERSAL);
@@ -454,7 +455,8 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size) {
   }
 
   /* Mount via loop device */
-  char *mount_argv[] = {"mount",     "-o", "loop", (char *)(uintptr_t)img_path,
+  char *opts = readonly ? "loop,ro" : "loop";
+  char *mount_argv[] = {"mount",     "-o", opts, (char *)(uintptr_t)img_path,
                         mount_point, NULL};
   if (run_command_quiet(mount_argv) != 0) {
     ds_error("Failed to mount image %s", img_path);

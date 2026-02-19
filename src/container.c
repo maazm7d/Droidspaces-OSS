@@ -124,7 +124,7 @@ int start_rootfs(struct ds_config *cfg) {
 
   if (cfg->rootfs_img_path[0]) {
     if (mount_rootfs_img(cfg->rootfs_img_path, cfg->rootfs_path,
-                         sizeof(cfg->rootfs_path)) < 0)
+                         sizeof(cfg->rootfs_path), cfg->volatile_mode) < 0)
       return -1;
     cfg->is_img_mount = 1;
     safe_strncpy(cfg->img_mount_point, cfg->rootfs_path,
