@@ -631,7 +631,7 @@ int run_in_rootfs(struct ds_config *cfg, int argc, char **argv) {
   if (check_status(cfg, &pid) < 0)
     return -1;
 
-  ds_log("Executing command in container '%s'...", cfg->container_name);
+  /* Removed verbose status log to allow raw output stream */
 
   pid_t child = fork();
   if (child < 0)
