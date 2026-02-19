@@ -138,34 +138,40 @@ int main(int argc, char **argv) {
       cfg.volatile_mode = 1;
       break;
     case 'B': {
-      if (cfg.bind_count >= DS_MAX_BINDS) {
-        ds_error("Too many bind mounts (max %d)", DS_MAX_BINDS);
-        return 1;
-      }
-      char *sep = strchr(optarg, ':');
-      if (!sep) {
-        ds_error("Invalid bind mount format: %s (expected SRC:DEST)", optarg);
-        return 1;
-      }
-      *sep = '\0';
-      const char *src = optarg;
-      const char *dest = sep + 1;
+      char *saveptr;
+      char *token = strtok_r(optarg, ",", &saveptr);
+      while (token) {
+        if (cfg.bind_count >= DS_MAX_BINDS) {
+          ds_error("Too many bind mounts (max %d)", DS_MAX_BINDS);
+          return 1;
+        }
 
-      /* Basic security check: destination must be absolute and not traverse */
-      if (dest[0] != '/') {
-        ds_error("Bind destination must be an absolute path: %s", dest);
-        return 1;
-      }
-      if (strstr(dest, "..")) {
-        ds_error("Path traversal detected in bind destination: %s", dest);
-        return 1;
-      }
+        char *sep = strchr(token, ':');
+        if (!sep) {
+          ds_error("Invalid bind mount format: %s (expected SRC:DEST)", token);
+          return 1;
+        }
+        *sep = '\0';
+        const char *src = token;
+        const char *dest = sep + 1;
 
-      safe_strncpy(cfg.binds[cfg.bind_count].src, src,
-                   sizeof(cfg.binds[cfg.bind_count].src));
-      safe_strncpy(cfg.binds[cfg.bind_count].dest, dest,
-                   sizeof(cfg.binds[cfg.bind_count].dest));
-      cfg.bind_count++;
+        if (dest[0] != '/') {
+          ds_error("Bind destination must be an absolute path: %s", dest);
+          return 1;
+        }
+        if (strstr(dest, "..")) {
+          ds_error("Path traversal detected in bind destination: %s", dest);
+          return 1;
+        }
+
+        safe_strncpy(cfg.binds[cfg.bind_count].src, src,
+                     sizeof(cfg.binds[cfg.bind_count].src));
+        safe_strncpy(cfg.binds[cfg.bind_count].dest, dest,
+                     sizeof(cfg.binds[cfg.bind_count].dest));
+        cfg.bind_count++;
+
+        token = strtok_r(NULL, ",", &saveptr);
+      }
       break;
     }
     case 'v':
