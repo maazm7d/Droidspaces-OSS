@@ -425,8 +425,26 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   if (!stopped) {
     ds_warn("Graceful stop timed out, sending SIGKILL...");
     kill(pid, SIGKILL);
-    /* Block until process is dead to prevent zombie resources */
-    waitpid(pid, NULL, 0);
+
+    /*
+     * Wait up to 5 seconds for the kernel to clean up the process.
+     * We don't use blocking waitpid() because we aren't the parent,
+     * and we want a timeout to prevent hanging on unkillable PIDs.
+     */
+    int killed = 0;
+    for (int j = 0; j < 25; j++) { /* 5 seconds total */
+      if (kill(pid, 0) < 0 && errno == ESRCH) {
+        killed = 1;
+        break;
+      }
+      usleep(200000); /* 200ms */
+    }
+
+    if (!killed) {
+      ds_error("Container PID %d is in an unkillable state!", pid);
+      ds_die("This often happens on old Android kernels due to zombie "
+             "processes.\nPlease restart your device to clear it.");
+    }
   }
 
   /* 4. Firmware cleanup if we captured rootfs earlier */
