@@ -268,7 +268,11 @@ When `--volatile` (`-V`) is used, Droidspaces wraps the rootfs in an ephemeral w
 All file modifications happen in the `tmpfs`-backed `upperdir`. On container exit, the monitor process unmounts the overlay and recursively deletes the workspace, ensuring no changes persist. Droidspaces ensures that the overlay is cleaned up *before* the underlying rootfs image is unmounted.
 
 **Known Limitation — f2fs (Android):**
-Most Android devices use f2fs for `/data`. OverlayFS on many Android kernels (4.14, 5.15) does not support f2fs as a `lowerdir`. This means **volatile mode + directory rootfs (`-r`) will fail** when the rootfs lives on f2fs. Droidspaces detects this at runtime (via `statfs()` magic `0xF2F52010`) and prints a clear diagnostic. **Workaround**: Use a rootfs image (`-i`) instead — the ext4 loop mount provides a compatible lowerdir.
+Most Android devices use f2fs for `/data`. OverlayFS on many Android kernels (4.14, 5.15) does not support f2fs as a `lowerdir`. This means **volatile mode + directory rootfs (`-r`) will fail** when the rootfs lives on f2fs. 
+
+**Pre-flight Check (v3.2.2+)**: Droidspaces performs an early validation of OverlayFS support and f2fs compatibility in the **parent process** before any host-side state (networking, optimizations) is modified. This ensures the runtime fails "cleanly" if volatile mode is unsupported.
+
+Droidspaces detects this at runtime via `statfs()` magic `0xF2F52010` and prints a clear diagnostic. **Workaround**: Use a rootfs image (`-i`) instead — the ext4 loop mount provides a compatible lowerdir.
 
 **What is NOT used and why:**
 - `CLONE_NEWNET` — The container shares the host network. Deliberate design choice for simplicity on Android.
@@ -304,7 +308,7 @@ Iterates through `--bind-mount` entries and performs recursive bind mounts from 
 
 **Resilience (v3.2.0+)**: If a host source path is missing or the mount fails, Droidspaces issues a warning and skips the specific entry rather than failing the entire boot sequence ("soft-fail" model). 
 
-**Security Hardening (v3.2.2+)**: To prevent path-traversal escapes, Droidspaces validates both the command-line arguments and the final resolved mount target. The `is_subpath(rootfs, tgt)` helper uses `realpath()` to ensure that even with malicious symlinks in the rootfs, a bind mount cannot be used to mount a host resource over a path outside the container's root.
+**Security Hardening (v3.2.2+)**: To prevent path-traversal escapes, Droidspaces validates both the command-line arguments and the final resolved mount target. Before mounting, it uses `lstat()` to ensure the target inside the rootfs is not a symlink. After mounting, the `is_subpath(rootfs, tgt)` helper uses `realpath()` to ensure that even with a complex malicious hierarchy, a bind mount cannot escape the container's root.
 ```c
 chdir(cfg->rootfs_path);
 ```
@@ -804,7 +808,7 @@ cleanup_container_resources(cfg, 0, skip_unmount);
 - Restore Android optimizations (`android_optimizations(0)`)
 - **Robust Cleanup (v3.2.1+)**: Adds a settle-time for lazy unmounts (`MNT_DETACH`) before attempting to remove host-side mount directories. This prevents leftover empty directories in `/mnt/Droidspaces/` when the kernel is slow to release loop devices.
 - Remove firmware path entry
-- **Cleanup Volatile Overlay**: Calls `cleanup_volatile_overlay()` to unmount the OverlayFS, unmount the workspace `tmpfs`, and recursively delete the temporary directory.
+- **Cleanup Volatile Overlay (v3.2.2+)**: Calls `cleanup_volatile_overlay()` with a **retry mechanism**. Since OverlayFS mount points can sometimes be busy during container exit, the monitor attempt to unmount (MNT_DETACH) up to 5 times with exponential backoff before recursively deleting the temporary workspace.
 - Unmount rootfs.img if applicable (unless `skip_unmount` for restart)
 - Remove `.mount` sidecar file
 - Remove pidfile
@@ -882,8 +886,10 @@ Found containers are automatically registered with auto-generated names from `/p
 The Makefile compiles with musl libc for maximum portability across Android devices:
 
 ```makefile
-CFLAGS  = -Wall -Wextra -O2 -flto -std=gnu99 -Isrc -no-pie -pthread
-CFLAGS += -Wno-unused-parameter -Wno-unused-result
+CFLAGS  = -Wall -Wextra -Wpedantic -Werror -O2 -flto -std=gnu99 -Isrc -no-pie -pthread
+CFLAGS += -Wformat=2 -Wformat-security -Wformat-overflow=2 -Wformat-truncation=2
+CFLAGS += -Wnull-dereference -Wcast-qual -Wlogical-op
+CFLAGS += -Wduplicated-cond -Wduplicated-branches -Wimplicit-fallthrough=3
 LDFLAGS = -static -no-pie -flto -pthread
 LIBS    = -lutil
 ```
@@ -1148,4 +1154,4 @@ provide a link to the license, and indicate if changes were made.
 
 **End of Document**
 
-*This document was written by analyzing v3.2.0 of the Droidspaces source code — approximately 3,300 lines of C across 13 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
+*This document was written by analyzing v3.2.2 of the Droidspaces source code — approximately 3,300 lines of C across 13 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
