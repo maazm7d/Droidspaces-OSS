@@ -197,9 +197,21 @@ int start_rootfs(struct ds_config *cfg) {
     rootfs_norm[rlen - 1] = '\0';
 
   snprintf(init_path, sizeof(init_path), "%.4080s/sbin/init", rootfs_norm);
-  if (access(init_path, X_OK) != 0) {
-    ds_error("Init binary not found or not executable: %s", init_path);
+  struct stat st;
+  if (lstat(init_path, &st) != 0) {
+    ds_error("Init binary not found: %s", init_path);
     ds_die("Please ensure the rootfs path is correct and contains /sbin/init.");
+  }
+
+  /*
+   * Robust Check: If it's a symlink, we MUST assume it's valid.
+   * Absolute symlinks (e.g. /sbin/init -> /lib/systemd/systemd) will appear
+   * "broken" from the host's perspective, but will resolve correctly inside
+   * the container after pivot_root.
+   */
+  if (!S_ISLNK(st.st_mode) && access(init_path, X_OK) != 0) {
+    ds_error("Init binary is not executable: %s", init_path);
+    ds_die("Ensure it has executable permissions.");
   }
 
   cfg->tty_count = DS_MAX_TTYS;
