@@ -66,7 +66,8 @@ src/
 - **Security Hardening (v3.2.2+):** Implemented strict path-traversal protection for bind mounts using a `realpath`-based `is_subpath()` helper to prevent container escapes.
 - **Strict Naming Architecture:** Enforces mandatory `--name` for image-based containers to ensure host-side infrastructure is predictable.
 - **CLI UX Refinement:** Restored flag permutation for the `enter` command and added support for comma-separated bind mounts (`-B src:dest,src2:dest2`).
-- **Namespace-Aware Cleanup (v3.3.0+):** Volatile mode cleanup is now namespace-aware. Since OverlayFS is mounted inside the container's private mount namespace, the kernel automatically unmounts it when the namespace dies. The host now passively checks `/proc/self/mountinfo` and skips redundant unmounts.
+- **Namespace-Aware Cleanup (v3.3.0+):** Volatile mode cleanup is now namespace-aware. Since OverlayFS is mounted inside the container's private mount namespace, the kernel automatically unmounts it when the namespace dies.
+- **Adaptive Seccomp Shield (v3.3.0+):** Implements a kernel-aware BPF filter that resolves Keyring/FBE conflicts and prevents VFS deadlocks on legacy Android kernels (< 5.0) while remaining inactive on modern systems for Docker support.
 
 
 ---
@@ -833,16 +834,58 @@ droidspaces --name=web,db,cache stop
 ```
 
 Each name is parsed with `strtok()`, a subcfg is created, and `stop_rootfs()` is called individually.
+---
+
+## 11. Android Compatibility & Seccomp Shielding
+
+Droidspaces v3.3.0 introduces a sophisticated **Adaptive Seccomp Shield** implemented in `src/android_seccomp.c`. This is the final piece of the architecture that enables stable systemd operation on Android host kernels.
+
+### 11.1 The Problems Being Solved
+
+#### A. The Keyring / FBE Conflict (ENOKEY)
+On Android hosts with File-Based Encryption (FBE), the filesystem encryption keys are stored in the kernel's **session keyring**. When `systemd` (specifically `journald` or `logind`) attempts to create a new session keyring using `keyctl(KEYCTL_JOIN_SESSION_KEYRING)`, the process effectively loses access to the host-provided keys.
+- **Symptoms**: The container suddenly reports "Required key not available" (ENOKEY) when accessing encrypted files, leading to a system crash.
+- **Fix**: The Seccomp filter intercepts `keyctl`, `add_key`, and `request_key` and returns `ENOSYS`. This tricks systemd into falling back to the existing session keyring, preserving FBE access.
+
+#### B. The Namespace Deadlock (grab_super)
+On legacy Android kernels (notably 4.19, 4.14, 4.9, and below), systemd's use of mount namespaces for service sandboxing (`PrivateTmp=yes`, `ProtectSystem=yes`) triggers a race condition in the kernel's `grab_super` path.
+- **Symptoms**: The entire system hangs (Deadlock) or panics during the boot of services like `systemd-resolved` or `systemd-networkd`.
+- **Fix**: On detected legacy kernels, the filter monitors `unshare` and `clone`. If flags like `CLONE_NEWNS` or `CLONE_NEWPID` are requested, it returns `EPERM`. Systemd gracefully fallbacks to running the service in the main container namespace, bypassing the deadlock.
+
+### 11.2 Adaptive Shield Implementation
+
+The shield uses a **linear BPF structure** for maximum performance and is strictly adaptive based on the host kernel version (detected via `get_kernel_version()`):
+
+1. **Detection**: At boot, Droidspaces probes `uname()`.
+2. **Legacy Logic (Kernel < 5.0)**:
+   - The filter is fully applied.
+   - Both Keyring (ENOSYS) and Namespace (EPERM) protections are active.
+   - This ensures the device remains stable and FBE-aware.
+3. **Modern Logic (Kernel 5.0+)**:
+   - The entire filter is **skipped**.
+   - Modern Android kernels (5.10, 5.15, 6.1+) have resolved these races and handle keyrings more robustly.
+   - **Crucial Benefit**: This allows advanced container tools like **Docker** and **nested containers** to function with 100% native performance and full feature support.
+
+### 11.3 Filter Logic Flow (BPF)
+
+The filter follows this internal flow:
+1. **Validate Arch**: Ensures the syscall matches the current CPU architecture (AArch64, x86_64, etc).
+2. **Keyring Check**: If syscall is `keyctl`, `add_key`, or `request_key`, return `ENOSYS`.
+3. **Namespace Check**: 
+   - If syscall is `unshare` or `clone`.
+   - Load arguments and check against `ns_mask` (`0x7E020000`).
+   - If match, return `EPERM`.
+4. **Default**: `SECCOMP_RET_ALLOW`.
 
 ---
 
-## 11. Status Reporting
+## 12. Status Reporting
 
-### 11.1 Status Command
+### 12.1 Status Command
 
 `check_status()` resolves the pidfile (auto-detect if only one container running), reads the PID, validates with `kill(pid, 0)`, and checks `is_valid_container_pid()` (which reads `/proc/<pid>/root/run/systemd/container` for "droidspaces").
 
-### 11.2 Info Command
+### 12.2 Info Command
 
 `show_info()` provides detailed introspection:
 
@@ -854,7 +897,7 @@ Each name is parsed with `strtok()`, a subcfg is created, and `stop_rootfs()` is
    - **HW Access:** Checks the `/dev` filesystem type.
 3. **Guest OS Info:** Reads `/etc/os-release` from the container's rootfs (even if stopped).
 
-### 11.3 Show Command
+### 12.3 Show Command
 
 `show_containers()` lists all running containers in a table:
 
@@ -869,7 +912,7 @@ Each name is parsed with `strtok()`, a subcfg is created, and `stop_rootfs()` is
 
 It reads all `.pid` files from the Pids directory, validates each PID, removes stale pidfiles, and renders a Unicode box-drawing table with dynamic column widths.
 
-### 11.4 Scan Command
+### 12.4 Scan Command
 
 `scan_containers()` scans *all* PIDs in `/proc` for processes that:
 1. Pass `is_valid_container_pid()` (have `/run/systemd/container` containing "droidspaces")
@@ -880,7 +923,7 @@ Found containers are automatically registered with auto-generated names from `/p
 
 ---
 
-## 12. Build System Notes
+## 13. Build System Notes
 
 ### Compiler and Libc
 
@@ -918,9 +961,9 @@ All binaries go to `output/droidspaces`. An `all-build` target creates architect
 
 ---
 
-## 13. Data Structures
+## 14. Data Structures
 
-### 13.1 struct ds_config
+### 14.1 struct ds_config
 
 The central configuration struct, passed to every function (replaces all global variables from v2):
 
@@ -955,7 +998,7 @@ struct ds_config {
 };
 ```
 
-### 13.2 struct ds_tty_info
+### 14.2 struct ds_tty_info
 
 ```c
 struct ds_tty_info {
@@ -965,7 +1008,7 @@ struct ds_tty_info {
 };
 ```
 
-### 13.3 Constants
+### 14.3 Constants
 
 | Constant | Value | Purpose |
 |---|---|---|
@@ -978,7 +1021,7 @@ struct ds_tty_info {
 
 ---
 
-## 14. Recommended Reimplementation Approach
+## 15. Recommended Reimplementation Approach
 
 If you're rewriting Droidspaces from scratch, here is the checklist of every decision and every syscall, in order.
 
@@ -1135,7 +1178,7 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 
 ---
 
-## 13. Project Licensing & SPDX
+## 16. Project Licensing & SPDX
 
 The Droidspaces source code is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**. 
 
@@ -1145,7 +1188,7 @@ Every source file in the `src/` directory and the `Makefile` contain standard SP
 
 ---
 
-## 14. Document License
+## 17. Document License
 
 This document is licensed under the Creative Commons Attribution 4.0 International (CC BY 4.0) License.
 You are free to share and adapt the material for any purpose, even commercially, provided you give appropriate credit,
