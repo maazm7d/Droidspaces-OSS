@@ -319,7 +319,7 @@ int setup_cgroups(void) {
   return 0;
 }
 
-int setup_volatile_overlay(struct ds_config *cfg) {
+int check_volatile_mode(struct ds_config *cfg) {
   if (!cfg->volatile_mode)
     return 0;
 
@@ -339,6 +339,13 @@ int setup_volatile_overlay(struct ds_config *cfg) {
              "for volatile mode on f2fs partitions.");
     return -1;
   }
+
+  return 0;
+}
+
+int setup_volatile_overlay(struct ds_config *cfg) {
+  if (check_volatile_mode(cfg) < 0)
+    return -1;
 
   ds_log("Entering volatile mode (OverlayFS)...");
 
@@ -367,52 +374,36 @@ int setup_volatile_overlay(struct ds_config *cfg) {
 
   /* 4. Perform Overlay mount */
   char opts[32768];
-  char *p = opts;
-  size_t len;
+  int n;
 
-  len = strlen(cfg->rootfs_path);
-  memcpy(p, "lowerdir=", 9);
-  p += 9;
-  memcpy(p, cfg->rootfs_path, len);
-  p += len;
-
-  len = strlen(upper);
-  memcpy(p, ",upperdir=", 10);
-  p += 10;
-  memcpy(p, upper, len);
-  p += len;
-
-  len = strlen(work);
-  memcpy(p, ",workdir=", 9);
-  p += 9;
-  memcpy(p, work, len);
-  p += len;
-
-  /* On Android, SELinux blocks writes through overlay when the upperdir
-   * creates files with tmpfs context that can't associate with the overlay's
-   * default filesystem label. Use tmpfs context to match the upperdir. */
   if (is_android()) {
-    char ctx[128];
-    snprintf(ctx, sizeof(ctx), ",context=\"%s\"", DS_ANDROID_TMPFS_CONTEXT);
-    size_t ctx_len = strlen(ctx);
-    memcpy(p, ctx, ctx_len);
-    p += ctx_len;
+    n = snprintf(opts, sizeof(opts),
+                 "lowerdir=%s,upperdir=%s/upper,workdir=%s/work,context=\"%s\"",
+                 cfg->rootfs_path, base, base, DS_ANDROID_TMPFS_CONTEXT);
+  } else {
+    n = snprintf(opts, sizeof(opts),
+                 "lowerdir=%s,upperdir=%s/upper,workdir=%s/work",
+                 cfg->rootfs_path, base, base);
   }
 
-  *p = '\0';
+  if (n < 0 || (size_t)n >= sizeof(opts)) {
+    ds_error("OverlayFS options too long");
+    cleanup_volatile_overlay(cfg);
+    return -1;
+  }
 
   if (domount("overlay", merged, "overlay", 0, opts) < 0) {
     ds_error("OverlayFS mount failed. Your kernel might not support it.");
     /* Cleanup: unmount tmpfs first, then remove workspace */
     umount2(base, MNT_DETACH);
-    remove_recursive(cfg->volatile_dir);
-    cfg->volatile_dir[0] = '\0';
+    ds_error("OverlayFS mount failed: %s", strerror(errno));
+    cleanup_volatile_overlay(cfg);
     return -1;
   }
 
-  /* 5. Switch rootfs path to the merged view */
-  ds_log("OverlayFS ready: Changes will be written to RAM and lost on exit.");
+  /* 9. Update cfg->rootfs_path to the merged view */
   safe_strncpy(cfg->rootfs_path, merged, sizeof(cfg->rootfs_path));
+  ds_log("Volatile mode enabled (writes redirect to RAM)");
 
   return 0;
 }
@@ -421,21 +412,34 @@ int cleanup_volatile_overlay(struct ds_config *cfg) {
   if (cfg->volatile_dir[0] == '\0')
     return 0;
 
-  ds_log("Cleaning up volatile overlay...");
-
   char merged[PATH_MAX + 32];
   snprintf(merged, sizeof(merged), "%s/merged", cfg->volatile_dir);
 
-  /* Unmount merged (lazy) */
-  umount2(merged, MNT_DETACH);
+  ds_log("Cleaning up volatile overlay: %s", cfg->volatile_dir);
 
-  /* Unmount base tmpfs (lazy) */
-  umount2(cfg->volatile_dir, MNT_DETACH);
+  /* Retry loop for unmounting busy filesystems */
+  for (int retry = 0; retry < 5; retry++) {
+    int m_fail = 0, b_fail = 0;
 
-  /* Remove directories */
-  remove_recursive(cfg->volatile_dir);
+    if (umount2(merged, MNT_DETACH) < 0 && errno != ENOENT) {
+      m_fail = 1;
+    }
+    if (umount2(cfg->volatile_dir, MNT_DETACH) < 0 && errno != ENOENT) {
+      b_fail = 1;
+    }
 
-  return 0;
+    if (!m_fail && !b_fail)
+      break;
+
+    if (retry < 4) {
+      ds_warn("Volatile mounts busy, retrying cleanup (%d/5)...", retry + 1);
+      usleep(200000); /* 200ms */
+    }
+  }
+
+  int r = remove_recursive(cfg->volatile_dir);
+  cfg->volatile_dir[0] = '\0';
+  return r;
 }
 
 int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
@@ -464,6 +468,13 @@ int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
       mkdir_p(parent, 0755);
     }
 
+    /* Security: Check if target exists and is a symlink */
+    struct stat st_tgt;
+    if (lstat(tgt, &st_tgt) == 0 && S_ISLNK(st_tgt.st_mode)) {
+      ds_error("Security Violation: Bind target %s is a symlink!", tgt);
+      continue;
+    }
+
     /* Perform bind mount */
     if (bind_mount(cfg->binds[i].src, tgt) < 0) {
       ds_warn("Failed to bind mount %s on %s (skipping)", cfg->binds[i].src,
@@ -472,7 +483,7 @@ int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
     }
 
     /* Verify isolation: Ensure we didn't accidentally mount over a host path
-     * if the container rootfs had a malicious symlink. */
+     * if the container rootfs had a complex malicious structure. */
     if (!is_subpath(rootfs, tgt)) {
       ds_error("Security Violation: Bind destination %s escapes rootfs %s!",
                tgt, rootfs);

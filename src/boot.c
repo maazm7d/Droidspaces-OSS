@@ -10,27 +10,40 @@
 int internal_boot(struct ds_config *cfg) {
 
   /* 1. Isolated mount namespace */
-  if (unshare(CLONE_NEWNS) < 0)
-    ds_die("Failed to unshare mount namespace: %s", strerror(errno));
+  if (unshare(CLONE_NEWNS) < 0) {
+    ds_error("Failed to unshare mount namespace: %s", strerror(errno));
+    return -1;
+  }
 
-  /* 2. Make root filesystem private to prevent mount leakage to host */
-  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0)
-    ds_die("Failed to remount / as private: %s", strerror(errno));
+  /* 2. Make all mounts private to avoid leaking to host */
+  if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) < 0) {
+    ds_error("Failed to make / private: %s", strerror(errno));
+    return -1;
+  }
 
   /* 2.5 Setup volatile overlay INSIDE the container's mount namespace.
    * This MUST happen here (not in parent) so the overlay's connection to
    * its lowerdir (e.g. a loop-mounted image) survives mount privatization. */
-  if (setup_volatile_overlay(cfg) < 0)
-    ds_die("Failed to setup volatile overlay");
+  /* 3. Volatile Overlay (Ephemereal mode) */
+  if (cfg->volatile_mode) {
+    if (setup_volatile_overlay(cfg) < 0) {
+      ds_error("Failed to setup volatile overlay.");
+      return -1;
+    }
+  }
 
   /* 3. Bind mount rootfs to itself (required for pivot_root) */
   if (mount(cfg->rootfs_path, cfg->rootfs_path, NULL, MS_BIND | MS_REC, NULL) <
-      0)
-    ds_die("Failed to bind mount rootfs: %s", strerror(errno));
+      0) {
+    ds_error("Failed to bind mount rootfs: %s", strerror(errno));
+    return -1;
+  }
 
-  /* 4. Change directory to rootfs */
-  if (chdir(cfg->rootfs_path) < 0)
-    ds_die("Failed to chdir to rootfs: %s", strerror(errno));
+  /* 5. Set working directory to rootfs */
+  if (chdir(cfg->rootfs_path) < 0) {
+    ds_error("Failed to chdir to %s: %s", cfg->rootfs_path, strerror(errno));
+    return -1;
+  }
 
   /* 4.1 Read UUID from sync file if not already provided (parity with v2) */
   if (cfg->uuid[0] == '\0') {
@@ -44,15 +57,27 @@ int internal_boot(struct ds_config *cfg) {
   }
 
   /* 5. Prepare .old_root for pivot_root */
-  mkdir(".old_root", 0755);
+  if (mkdir(".old_root", 0755) < 0 && errno != EEXIST) {
+    ds_error("Failed to create .old_root directory: %s", strerror(errno));
+    return -1;
+  }
 
-  /* 5. Setup /dev (tmpfs or devtmpfs) */
-  if (setup_dev(".", cfg->hw_access) < 0)
-    ds_die("Failed to setup /dev");
+  /* 8. Setup /dev */
+  if (setup_dev(".", cfg->hw_access) < 0) {
+    ds_error("Failed to setup /dev.");
+    return -1;
+  }
 
   /* 6. Mount virtual filesystems */
-  mkdir("proc", 0755);
-  domount("proc", "proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+  if (mkdir("proc", 0755) < 0 && errno != EEXIST) {
+    ds_error("Failed to create proc directory: %s", strerror(errno));
+    return -1;
+  }
+  if (domount("proc", "proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) <
+      0) {
+    ds_error("Failed to mount procfs: %s", strerror(errno));
+    return -1;
+  }
 
   /* Mount /sys
    * CRITICAL: Without --hw-access, mount sysfs as read-only to prevent
@@ -60,8 +85,15 @@ int internal_boot(struct ds_config *cfg) {
    * However, remount /sys/devices/virtual/net as read-write for networking
    * (needed for Docker, WireGuard, Tailscale, SSH, etc.).
    * With --hw-access, allow read-write access for full hardware control. */
-  mkdir("sys", 0755);
-  domount("sysfs", "sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+  if (mkdir("sys", 0755) < 0 && errno != EEXIST) {
+    ds_error("Failed to create sys directory: %s", strerror(errno));
+    return -1;
+  }
+  if (domount("sysfs", "sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) <
+      0) {
+    ds_error("Failed to mount sysfs: %s", strerror(errno));
+    return -1;
+  }
 
   if (cfg->hw_access) {
     /* DYNAMIC HARDWARE HOLES: Instead of hardcoding, we iterate through
@@ -89,9 +121,17 @@ int internal_boot(struct ds_config *cfg) {
     }
   } else {
     /* Hardware isolation: network only mixed mode */
-    mkdir("sys/devices", 0755);
-    mkdir("sys/devices/virtual", 0755);
-    mkdir("sys/devices/virtual/net", 0755);
+    if (mkdir("sys/devices", 0755) < 0 && errno != EEXIST) {
+      ds_warn("Failed to create sys/devices directory: %s", strerror(errno));
+    }
+    if (mkdir("sys/devices/virtual", 0755) < 0 && errno != EEXIST) {
+      ds_warn("Failed to create sys/devices/virtual directory: %s",
+              strerror(errno));
+    }
+    if (mkdir("sys/devices/virtual/net", 0755) < 0 && errno != EEXIST) {
+      ds_warn("Failed to create sys/devices/virtual/net directory: %s",
+              strerror(errno));
+    }
 
     if (domount("sysfs", "sys/devices/virtual/net", "sysfs",
                 MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) < 0) {
@@ -114,8 +154,14 @@ int internal_boot(struct ds_config *cfg) {
     /* File might not exist yet if sysfs is partially populated */
   }
 
-  mkdir("run", 0755);
-  domount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=755");
+  if (mkdir("run", 0755) < 0 && errno != EEXIST) {
+    ds_error("Failed to create run directory: %s", strerror(errno));
+    return -1;
+  }
+  if (domount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=755") < 0) {
+    ds_error("Failed to mount tmpfs at /run: %s", strerror(errno));
+    return -1;
+  }
 
   /* 7. Bind-mount TTYs BEFORE pivot_root so we can still see /dev/pts/N from
    * host */
@@ -148,13 +194,19 @@ int internal_boot(struct ds_config *cfg) {
   /* 11. Custom bind mounts */
   setup_custom_binds(cfg, ".");
 
-  /* 12. PIVOT_ROOT */
-  if (syscall(SYS_pivot_root, ".", ".old_root") < 0)
-    ds_die("pivot_root failed: %s", strerror(errno));
+  /* 14. pivot_root */
+  if (syscall(SYS_pivot_root, ".", ".old_root") < 0) {
+    ds_error("pivot_root failed: %s", strerror(errno));
+    /* pivot_root might fail if we are on ramfs.
+     * We don't die here because we might want to try fallback or
+     * at least log it properly. But in this implementation, it's critical. */
+    return -1;
+  }
 
-  /* 13. Switch to new root */
-  if (chdir("/") < 0)
-    ds_die("chdir / failed: %s", strerror(errno));
+  if (chdir("/") < 0) {
+    ds_error("chdir(\"/\") after pivot_root failed: %s", strerror(errno));
+    return -1;
+  }
 
   /* 14. Setup devpts (must be after pivot_root for newinstance) */
   setup_devpts(cfg->hw_access);

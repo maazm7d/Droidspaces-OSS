@@ -160,6 +160,13 @@ int start_rootfs(struct ds_config *cfg) {
                  sizeof(cfg->img_mount_point));
   }
 
+  /* 3. Early pre-flight for volatile mode (before any host changes) */
+  if (check_volatile_mode(cfg) < 0) {
+    if (cfg->is_img_mount)
+      unmount_rootfs_img(cfg->img_mount_point);
+    return -1;
+  }
+
   generate_uuid(cfg->uuid, sizeof(cfg->uuid));
 
   /* Pre-populate volatile_dir for monitor cleanup (actual overlay setup
@@ -406,12 +413,8 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   if (!stopped) {
     ds_warn("Graceful stop timed out, sending SIGKILL...");
     kill(pid, SIGKILL);
-    /* Really make sure it's gone */
-    for (int i = 0; i < 10; i++) {
-      if (kill(pid, 0) < 0)
-        break;
-      usleep(100000);
-    }
+    /* Block until process is dead to prevent zombie resources */
+    waitpid(pid, NULL, 0);
   }
 
   /* 4. Firmware cleanup if we captured rootfs earlier */

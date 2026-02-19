@@ -41,6 +41,7 @@ int fix_networking_host(struct ds_config *cfg) {
     write_file("/proc/sys/net/ipv6/conf/default/disable_ipv6", "0");
     write_file("/proc/sys/net/ipv6/conf/all/forwarding", "1");
   } else {
+    /* If IPv6 is not available, these writes might fail, which is fine */
     write_file("/proc/sys/net/ipv6/conf/all/disable_ipv6", "1");
     write_file("/proc/sys/net/ipv6/conf/default/disable_ipv6", "1");
   }

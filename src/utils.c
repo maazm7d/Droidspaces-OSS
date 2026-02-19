@@ -21,21 +21,34 @@ void safe_strncpy(char *dst, const char *src, size_t size) {
 
 int is_subpath(const char *parent, const char *child) {
   char real_parent[PATH_MAX], real_child[PATH_MAX];
-  if (!realpath(parent, real_parent))
+
+  if (!realpath(parent, real_parent)) {
     return 0;
-  if (!realpath(child, real_child)) {
+  }
+
+  /* We use a temporary buffer for child path manipulation */
+  char child_copy[PATH_MAX];
+  safe_strncpy(child_copy, child, sizeof(child_copy));
+
+  if (!realpath(child_copy, real_child)) {
     /* If child doesn't exist yet, we can't realpath it.
      * But for bind mounts, tgt usually exists or is about to be created.
      * We'll check the parent of the child instead. */
-    char child_dir[PATH_MAX];
-    safe_strncpy(child_dir, child, sizeof(child_dir));
-    char *slash = strrchr(child_dir, '/');
+    char *slash = strrchr(child_copy, '/');
     if (slash) {
-      *slash = '\0';
-      if (!realpath(child_dir, real_child))
+      if (slash == child_copy) {
+        /* Child is in the root directory */
+        safe_strncpy(child_copy, "/", sizeof(child_copy));
+      } else {
+        *slash = '\0';
+      }
+
+      if (!realpath(child_copy, real_child))
         return 0;
     } else {
-      return 0;
+      /* Relative path with no slashes, check current directory */
+      if (!realpath(".", real_child))
+        return 0;
     }
   }
 
@@ -52,7 +65,12 @@ int mkdir_p(const char *path, mode_t mode) {
   char *p = NULL;
   size_t len;
 
-  snprintf(tmp, sizeof(tmp), "%s", path);
+  int r = snprintf(tmp, sizeof(tmp), "%s", path);
+  if (r < 0 || (size_t)r >= sizeof(tmp)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
   len = strlen(tmp);
   if (len == 0)
     return 0;
@@ -101,10 +119,12 @@ int write_file(const char *path, const char *content) {
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0)
     return -1;
+
   size_t len = strlen(content);
-  ssize_t w = write(fd, content, len);
-  close(fd);
-  return (w == (ssize_t)len) ? 0 : -1;
+  ssize_t w = write_all(fd, content, len);
+  int close_ret = close(fd);
+
+  return (w == (ssize_t)len && close_ret == 0) ? 0 : -1;
 }
 
 ssize_t write_all(int fd, const void *buf, size_t count) {
@@ -124,18 +144,34 @@ ssize_t write_all(int fd, const void *buf, size_t count) {
 }
 
 int read_file(const char *path, char *buf, size_t size) {
+  if (size == 0)
+    return -1;
+
   int fd = open(path, O_RDONLY);
   if (fd < 0)
     return -1;
-  ssize_t r = read(fd, buf, size - 1);
+
+  ssize_t total_read = 0;
+  ssize_t r = 1;
+  while ((size_t)total_read < size - 1 &&
+         (r = read(fd, buf + total_read, size - 1 - (size_t)total_read)) > 0) {
+    total_read += r;
+  }
+
   close(fd);
+
   if (r < 0)
     return -1;
-  buf[r] = '\0';
-  /* strip trailing newline */
-  while (r > 0 && (buf[r - 1] == '\n' || buf[r - 1] == '\r'))
-    buf[--r] = '\0';
-  return (int)r;
+
+  buf[total_read] = '\0';
+
+  /* strip trailing newline and carriage return */
+  while (total_read > 0 &&
+         (buf[total_read - 1] == '\n' || buf[total_read - 1] == '\r')) {
+    buf[--total_read] = '\0';
+  }
+
+  return (int)total_read;
 }
 
 /* ---------------------------------------------------------------------------

@@ -106,7 +106,10 @@ void android_remount_data_suid(void) {
   /* On some Android versions, /data is mounted nosuid. We need suid for
    * sudo/su/ping within the container if it's stored on /data. */
   char *args[] = {"mount", "-o", "remount,suid", "/data", NULL};
-  run_command_quiet(args);
+  if (run_command_quiet(args) != 0) {
+    ds_warn(
+        "Failed to remount /data with suid support. su/sudo might not work.");
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -247,8 +250,9 @@ int android_setup_storage(const char *rootfs_path) {
   mkdir(path, 0755);
 
   ds_log("Mounting Android internal storage to /storage/emulated/0...");
-  if (domount(storage_src, path, NULL, MS_BIND | MS_REC, NULL) < 0) {
-    ds_warn("Failed to bind-mount Android storage %s -> %s", storage_src, path);
+  if (mount(storage_src, path, NULL, MS_BIND | MS_REC, NULL) < 0) {
+    ds_warn("Failed to bind-mount Android storage %s -> %s: %s", storage_src,
+            path, strerror(errno));
     return -1;
   }
 
