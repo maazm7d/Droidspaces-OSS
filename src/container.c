@@ -125,14 +125,13 @@ int start_rootfs(struct ds_config *cfg) {
   /* 1. Resolve container name first (needed for descriptive mount points) */
   if (cfg->container_name[0] == '\0') {
     if (cfg->rootfs_img_path[0]) {
-      char seed[256];
-      safe_basename_no_ext(cfg->rootfs_img_path, seed, sizeof(seed));
-      safe_strncpy(cfg->container_name, seed, sizeof(cfg->container_name));
-    } else {
-      if (generate_container_name(cfg->rootfs_path, cfg->container_name,
-                                  sizeof(cfg->container_name)) < 0)
-        return -1;
+      ds_error("--name is mandatory when using a rootfs image.");
+      return -1;
     }
+
+    if (generate_container_name(cfg->rootfs_path, cfg->container_name,
+                                sizeof(cfg->container_name)) < 0)
+      return -1;
   }
 
   /* Always find an available name starting from the current base */

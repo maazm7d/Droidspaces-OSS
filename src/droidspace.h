@@ -169,7 +169,6 @@ struct ds_config {
  * ---------------------------------------------------------------------------*/
 
 void safe_strncpy(char *dst, const char *src, size_t size);
-void safe_basename_no_ext(const char *path, char *buf, size_t size);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
 ssize_t write_all(int fd, const void *buf, size_t count);

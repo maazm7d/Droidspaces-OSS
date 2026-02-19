@@ -19,17 +19,6 @@ void safe_strncpy(char *dst, const char *src, size_t size) {
   dst[size - 1] = '\0';
 }
 
-void safe_basename_no_ext(const char *path, char *buf, size_t size) {
-  if (!path || !buf || size == 0)
-    return;
-  const char *base = strrchr(path, '/');
-  base = base ? base + 1 : path;
-  safe_strncpy(buf, base, size);
-  char *dot = strrchr(buf, '.');
-  if (dot && dot != buf)
-    *dot = '\0';
-}
-
 int mkdir_p(const char *path, mode_t mode) {
   char tmp[PATH_MAX];
   char *p = NULL;
