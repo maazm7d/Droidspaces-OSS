@@ -169,6 +169,7 @@ struct ds_config {
  * ---------------------------------------------------------------------------*/
 
 void safe_strncpy(char *dst, const char *src, size_t size);
+void safe_basename_no_ext(const char *path, char *buf, size_t size);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
 ssize_t write_all(int fd, const void *buf, size_t count);
@@ -218,7 +219,7 @@ int setup_volatile_overlay(struct ds_config *cfg);
 int cleanup_volatile_overlay(struct ds_config *cfg);
 int setup_custom_binds(struct ds_config *cfg, const char *rootfs);
 int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
-                     int readonly);
+                     int readonly, const char *name);
 int unmount_rootfs_img(const char *mount_point);
 int get_container_mount_fstype(pid_t pid, const char *path, char *fstype,
                                size_t size);

@@ -39,24 +39,36 @@ static int force_unlink(const char *path) {
   return 0;
 }
 
-/* Find available mount point in /mnt/Droidspaces/ (Universal) */
-static int find_available_mountpoint(char *mount_path, size_t size) {
+/* Find available mount point in /mnt/Droidspaces/ using suggested name */
+static int find_available_mountpoint(const char *name, char *mount_path,
+                                     size_t size) {
   const char *base_dir = DS_IMG_MOUNT_ROOT_UNIVERSAL;
 
   /* Create base directory if it doesn't exist */
   mkdir(base_dir, 0755);
 
-  /* Try numbers 0-99 */
-  for (int i = 0; i < DS_MAX_MOUNT_TRIES; i++) {
-    snprintf(mount_path, size, "%s/%d", base_dir, i);
+  /* Case 1: Use exact name if available */
+  snprintf(mount_path, size, "%s/%s", base_dir, name);
+  if (access(mount_path, F_OK) != 0) {
+    if (mkdir(mount_path, 0755) == 0)
+      return 0;
+  } else {
+    /* Path exists, check if it's a directory and NOT a mountpoint */
+    struct stat st;
+    if (stat(mount_path, &st) == 0 && S_ISDIR(st.st_mode) &&
+        !is_mountpoint(mount_path)) {
+      return 0;
+    }
+  }
+
+  /* Case 2: Fallback to name-N if name is already a mountpoint */
+  for (int i = 1; i < DS_MAX_MOUNT_TRIES; i++) {
+    snprintf(mount_path, size, "%s/%s-%d", base_dir, name, i);
 
     if (access(mount_path, F_OK) != 0) {
-      /* Directory doesn't exist, create it */
-      if (mkdir(mount_path, 0755) == 0) {
+      if (mkdir(mount_path, 0755) == 0)
         return 0;
-      }
     } else {
-      /* Path exists, check if it's a directory and NOT a mountpoint */
       struct stat st;
       if (stat(mount_path, &st) == 0 && S_ISDIR(st.st_mode) &&
           !is_mountpoint(mount_path)) {
@@ -65,7 +77,7 @@ static int find_available_mountpoint(char *mount_path, size_t size) {
     }
   }
 
-  return -1; /* No available mount point */
+  return -1;
 }
 
 /* ---------------------------------------------------------------------------
@@ -438,10 +450,9 @@ int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
  * ---------------------------------------------------------------------------*/
 
 int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
-                     int readonly) {
-  if (find_available_mountpoint(mount_point, mp_size) < 0) {
-    ds_error("Failed to find available mount point in %s",
-             DS_IMG_MOUNT_ROOT_UNIVERSAL);
+                     int readonly, const char *name) {
+  if (find_available_mountpoint(name, mount_point, mp_size) < 0) {
+    ds_error("Failed to find available mount point for %s", name);
     return -1;
   }
 

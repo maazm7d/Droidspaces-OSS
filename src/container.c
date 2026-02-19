@@ -122,23 +122,20 @@ int start_rootfs(struct ds_config *cfg) {
     ds_warn("--enable-android-storage is only supported on Android hosts. "
             "Skipping.");
 
-  if (cfg->rootfs_img_path[0]) {
-    if (mount_rootfs_img(cfg->rootfs_img_path, cfg->rootfs_path,
-                         sizeof(cfg->rootfs_path), cfg->volatile_mode) < 0)
-      return -1;
-    cfg->is_img_mount = 1;
-    safe_strncpy(cfg->img_mount_point, cfg->rootfs_path,
-                 sizeof(cfg->img_mount_point));
-  }
-
+  /* 1. Resolve container name first (needed for descriptive mount points) */
   if (cfg->container_name[0] == '\0') {
-    if (generate_container_name(cfg->rootfs_path, cfg->container_name,
-                                sizeof(cfg->container_name)) < 0)
-      return -1;
+    if (cfg->rootfs_img_path[0]) {
+      char seed[256];
+      safe_basename_no_ext(cfg->rootfs_img_path, seed, sizeof(seed));
+      safe_strncpy(cfg->container_name, seed, sizeof(cfg->container_name));
+    } else {
+      if (generate_container_name(cfg->rootfs_path, cfg->container_name,
+                                  sizeof(cfg->container_name)) < 0)
+        return -1;
+    }
   }
 
-  /* Always find an available name starting from the current base (allows
-   * alpine, alpine-1, etc) */
+  /* Always find an available name starting from the current base */
   char final_name[256];
   if (find_available_name(cfg->container_name, final_name, sizeof(final_name)) <
       0)
@@ -148,6 +145,17 @@ int start_rootfs(struct ds_config *cfg) {
   /* If no hostname specified, default to container name */
   if (cfg->hostname[0] == '\0') {
     safe_strncpy(cfg->hostname, cfg->container_name, sizeof(cfg->hostname));
+  }
+
+  /* 2. Mount rootfs image if provided (using the resolved name) */
+  if (cfg->rootfs_img_path[0]) {
+    if (mount_rootfs_img(cfg->rootfs_img_path, cfg->rootfs_path,
+                         sizeof(cfg->rootfs_path), cfg->volatile_mode,
+                         cfg->container_name) < 0)
+      return -1;
+    cfg->is_img_mount = 1;
+    safe_strncpy(cfg->img_mount_point, cfg->rootfs_path,
+                 sizeof(cfg->img_mount_point));
   }
 
   generate_uuid(cfg->uuid, sizeof(cfg->uuid));
