@@ -36,7 +36,12 @@ int internal_boot(struct ds_config *cfg) {
   if (cfg->uuid[0] == '\0') {
     read_file(".droidspaces-uuid", cfg->uuid, sizeof(cfg->uuid));
   }
-  unlink(".droidspaces-uuid");
+  if (access(".droidspaces-uuid", F_OK) == 0) {
+    if (unlink(".droidspaces-uuid") < 0) {
+      /* This might fail if the rootfs is RO (image mount), but internal_boot
+       * already skips writing it in that case. */
+    }
+  }
 
   /* 5. Prepare .old_root for pivot_root */
   mkdir(".old_root", 0755);

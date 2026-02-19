@@ -19,6 +19,34 @@ void safe_strncpy(char *dst, const char *src, size_t size) {
   dst[size - 1] = '\0';
 }
 
+int is_subpath(const char *parent, const char *child) {
+  char real_parent[PATH_MAX], real_child[PATH_MAX];
+  if (!realpath(parent, real_parent))
+    return 0;
+  if (!realpath(child, real_child)) {
+    /* If child doesn't exist yet, we can't realpath it.
+     * But for bind mounts, tgt usually exists or is about to be created.
+     * We'll check the parent of the child instead. */
+    char child_dir[PATH_MAX];
+    safe_strncpy(child_dir, child, sizeof(child_dir));
+    char *slash = strrchr(child_dir, '/');
+    if (slash) {
+      *slash = '\0';
+      if (!realpath(child_dir, real_child))
+        return 0;
+    } else {
+      return 0;
+    }
+  }
+
+  size_t len = strlen(real_parent);
+  if (strncmp(real_parent, real_child, len) == 0) {
+    if (real_child[len] == '\0' || real_child[len] == '/')
+      return 1;
+  }
+  return 0;
+}
+
 int mkdir_p(const char *path, mode_t mode) {
   char tmp[PATH_MAX];
   char *p = NULL;

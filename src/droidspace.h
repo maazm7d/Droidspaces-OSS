@@ -69,6 +69,7 @@
 #define DS_MAX_MOUNT_TRIES 1024
 #define DS_MAX_BINDS 16
 #define DS_VOLATILE_SUBDIR "Volatile"
+#define DS_ANDROID_TMPFS_CONTEXT "u:object_r:tmpfs:s0"
 
 /* Device nodes to create in container /dev (when using tmpfs) */
 #define DS_CONTAINER_MARKER "droidspaces"
@@ -169,6 +170,7 @@ struct ds_config {
  * ---------------------------------------------------------------------------*/
 
 void safe_strncpy(char *dst, const char *src, size_t size);
+int is_subpath(const char *parent, const char *child);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
 ssize_t write_all(int fd, const void *buf, size_t count);

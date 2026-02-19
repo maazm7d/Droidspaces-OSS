@@ -392,7 +392,8 @@ int setup_volatile_overlay(struct ds_config *cfg) {
    * creates files with tmpfs context that can't associate with the overlay's
    * default filesystem label. Use tmpfs context to match the upperdir. */
   if (is_android()) {
-    const char *ctx = ",context=\"u:object_r:tmpfs:s0\"";
+    char ctx[128];
+    snprintf(ctx, sizeof(ctx), ",context=\"%s\"", DS_ANDROID_TMPFS_CONTEXT);
     size_t ctx_len = strlen(ctx);
     memcpy(p, ctx, ctx_len);
     p += ctx_len;
@@ -467,6 +468,15 @@ int setup_custom_binds(struct ds_config *cfg, const char *rootfs) {
     if (bind_mount(cfg->binds[i].src, tgt) < 0) {
       ds_warn("Failed to bind mount %s on %s (skipping)", cfg->binds[i].src,
               tgt);
+      continue;
+    }
+
+    /* Verify isolation: Ensure we didn't accidentally mount over a host path
+     * if the container rootfs had a malicious symlink. */
+    if (!is_subpath(rootfs, tgt)) {
+      ds_error("Security Violation: Bind destination %s escapes rootfs %s!",
+               tgt, rootfs);
+      umount2(tgt, MNT_DETACH);
       continue;
     }
   }

@@ -149,9 +149,22 @@ int main(int argc, char **argv) {
         return 1;
       }
       *sep = '\0';
-      safe_strncpy(cfg.binds[cfg.bind_count].src, optarg,
+      const char *src = optarg;
+      const char *dest = sep + 1;
+
+      /* Basic security check: destination must be absolute and not traverse */
+      if (dest[0] != '/') {
+        ds_error("Bind destination must be an absolute path: %s", dest);
+        return 1;
+      }
+      if (strstr(dest, "..")) {
+        ds_error("Path traversal detected in bind destination: %s", dest);
+        return 1;
+      }
+
+      safe_strncpy(cfg.binds[cfg.bind_count].src, src,
                    sizeof(cfg.binds[cfg.bind_count].src));
-      safe_strncpy(cfg.binds[cfg.bind_count].dest, sep + 1,
+      safe_strncpy(cfg.binds[cfg.bind_count].dest, dest,
                    sizeof(cfg.binds[cfg.bind_count].dest));
       cfg.bind_count++;
       break;
