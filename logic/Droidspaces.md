@@ -6,7 +6,7 @@
 
 Droidspaces is a lightweight, zero-virtualization container runtime designed to run full Linux distributions (Ubuntu, Alpine, etc.) with systemd or openrc as PID 1, natively on Android devices. It achieves process isolation through Linux PID, IPC, MNT, and UTS namespaces — the same kernel primitives used by Docker and LXC — but targets the constrained and idiosyncratic Android kernel environment where many standard container tools refuse to operate.
 
-This document is a complete internal architecture reference for **Droidspaces v3.2.2**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
+This document is a complete internal architecture reference for **Droidspaces v3.3.0**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
 
 The codebase is approximately **3,300 lines of C** across 12 `.c` files and 1 master header, compiled as a single static binary against musl libc.
 
@@ -64,8 +64,9 @@ src/
 - **Volatile Overlay Mode:** Leverages Linux OverlayFS to store all container changes in RAM, ensuring an ephemeral environment that is wiped on exit.
 - **Custom Bind Mounts:** Allows mapping host directories into the container at arbitrary mount points with automatic destination creation.
 - **Security Hardening (v3.2.2+):** Implemented strict path-traversal protection for bind mounts using a `realpath`-based `is_subpath()` helper to prevent container escapes.
-- **Strict Naming Architecture:** Enforces mandatory `--name` for image-based containers to ensure host-side mount points and PID files are perfectly synchronized and descriptive.
-- **CLI UX Refinement:** Restored flag permutation for the `enter` command, allowing flags like `-n` to be placed anywhere in the command string.
+- **Strict Naming Architecture:** Enforces mandatory `--name` for image-based containers to ensure host-side infrastructure is predictable.
+- **CLI UX Refinement:** Restored flag permutation for the `enter` command and added support for comma-separated bind mounts (`-B src:dest,src2:dest2`).
+- **Namespace-Aware Cleanup (v3.3.0+):** Volatile mode cleanup is now namespace-aware. Since OverlayFS is mounted inside the container's private mount namespace, the kernel automatically unmounts it when the namespace dies. The host now passively checks `/proc/self/mountinfo` and skips redundant unmounts.
 
 
 ---
@@ -265,7 +266,7 @@ When `--volatile` (`-V`) is used, Droidspaces wraps the rootfs in an ephemeral w
 - **SELinux Fix (Android)**: On Android, the overlay is mounted using the `DS_ANDROID_TMPFS_CONTEXT` macro (default: `u:object_r:tmpfs:s0`) in `droidspace.h` to allow standard write operations within the upperdir.
 5. **Redirection**: The configuration's `rootfs_path` is updated to point to this merged view for the duration of the boot.
 
-All file modifications happen in the `tmpfs`-backed `upperdir`. On container exit, the monitor process unmounts the overlay and recursively deletes the workspace, ensuring no changes persist. Droidspaces ensures that the overlay is cleaned up *before* the underlying rootfs image is unmounted.
+All file modifications happen in the `tmpfs`-backed `upperdir`. On container exit, the monitor process recursively deletes the workspace. **Key Architectural Insight**: Because the overlay is mounted *after* `unshare(CLONE_NEWNS)` and `MS_PRIVATE` (see `boot.c`), it exists only within the container's mount namespace. When the container dies, the kernel tears down the namespace and the mounts vanish automatically—the host does not need to (and cannot) unmount them.
 
 **Known Limitation — f2fs (Android):**
 Most Android devices use f2fs for `/data`. OverlayFS on many Android kernels (4.14, 5.15) does not support f2fs as a `lowerdir`. This means **volatile mode + directory rootfs (`-r`) will fail** when the rootfs lives on f2fs. 
@@ -808,7 +809,7 @@ cleanup_container_resources(cfg, 0, skip_unmount);
 - Restore Android optimizations (`android_optimizations(0)`)
 - **Robust Cleanup (v3.2.1+)**: Adds a settle-time for lazy unmounts (`MNT_DETACH`) before attempting to remove host-side mount directories. This prevents leftover empty directories in `/mnt/Droidspaces/` when the kernel is slow to release loop devices.
 - Remove firmware path entry
-- **Cleanup Volatile Overlay (v3.2.2+)**: Calls `cleanup_volatile_overlay()` with a **retry mechanism**. Since OverlayFS mount points can sometimes be busy during container exit, the monitor attempt to unmount (MNT_DETACH) up to 5 times with exponential backoff before recursively deleting the temporary workspace.
+- **Cleanup Volatile Overlay (v3.3.0+)**: Calls `cleanup_volatile_overlay()`. This is a **namespace-aware passive cleanup**. It checks `/proc/self/mountinfo`; if the overlay is already unmounted by the kernel (due to namespace teardown), it skips straight to directory removal. If the mounts are still visible (e.g., during a manual `stop` of a live container), it performs a standard `umount`. All over-engineered retry loops and process-killing logic from v3.2.x have been removed for a leaner runtime.
 - Unmount rootfs.img if applicable (unless `skip_unmount` for restart)
 - Remove `.mount` sidecar file
 - Remove pidfile
@@ -1120,7 +1121,7 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 
 50. If still alive: `kill(pid, SIGKILL)`
 
-51. Cleanup: remove pidfile, unmount rootfs.img, restore firmware path, restore Android settings
+51. Cleanup: remove pidfile, unmount rootfs.img, restore firmware path, restore Android settings, cleanup volatile overlay (namespace-aware)
 
 ### Phase 7: Enter
 
@@ -1154,4 +1155,4 @@ provide a link to the license, and indicate if changes were made.
 
 **End of Document**
 
-*This document was written by analyzing v3.2.2 of the Droidspaces source code — approximately 3,300 lines of C across 13 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
+*This document was written by analyzing v3.3.0 of the Droidspaces source code — approximately 3,300 lines of C across 13 files. Every syscall, every mount, and every design decision described here was verified against the actual implementation.*
