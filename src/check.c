@@ -330,7 +330,7 @@ int check_requirements_detailed(void) {
     missing_must++;
   if (!check_ns(CLONE_NEWIPC, "ipc"))
     missing_must++;
-  if (access("/dev/null", F_OK) != 0)
+  if (!grep_file("/proc/filesystems", "devtmpfs"))
     missing_must++;
   if (!check_cgroup_devices())
     missing_must++;
