@@ -242,7 +242,11 @@ int start_rootfs(struct ds_config *cfg) {
   if (monitor_pid == 0) {
     /* MONITOR PROCESS */
     close(sync_pipe[0]);
-    setsid();
+    if (setsid() < 0 && errno != EPERM) {
+      /* Fatal only if it's not EPERM (which means already leader) */
+      ds_error("setsid failed: %s", strerror(errno));
+      exit(EXIT_FAILURE);
+    }
     prctl(PR_SET_NAME, "[ds-monitor]", 0, 0, 0);
 
     /* Unshare namespaces - Monitor enters new UTS, IPC, and optionally Cgroup

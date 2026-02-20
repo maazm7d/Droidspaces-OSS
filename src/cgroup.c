@@ -239,7 +239,17 @@ int setup_cgroups(void) {
         opts = suffix;
       }
 
-      if (mount("cgroup", container_mp, fstype, flags, opts) == 0) {
+      /* ANDROID FIX: Map known directory names to actual controller names
+       * expected by the kernel. */
+      const char *actual_opts = opts;
+      if (hosts[i].version == 1) {
+        if (strcmp(opts, "memcg") == 0)
+          actual_opts = "memory";
+        else if (strcmp(opts, "acct") == 0)
+          actual_opts = "cpuacct";
+      }
+
+      if (mount("cgroup", container_mp, fstype, flags, actual_opts) == 0) {
         /* Success - skip bind mount logic */
         goto symlink_v1;
       }
