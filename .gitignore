@@ -5,3 +5,4 @@ output
 .cursor
 *.md
 old_code_with_android-app/
+logs/
