@@ -46,6 +46,11 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Cgroup Namespace support (Linux 4.6+) */
+#ifndef CLONE_NEWCGROUP
+#define CLONE_NEWCGROUP 0x02000000
+#endif
+
 /* ---------------------------------------------------------------------------
  * Constants
  * ---------------------------------------------------------------------------*/
@@ -219,7 +224,6 @@ int bind_mount(const char *src, const char *tgt);
 int setup_dev(const char *rootfs, int hw_access);
 int create_devices(const char *rootfs, int hw_access);
 int setup_devpts(int hw_access);
-int setup_cgroups(void);
 int setup_volatile_overlay(struct ds_config *cfg);
 int cleanup_volatile_overlay(struct ds_config *cfg);
 int check_volatile_mode(struct ds_config *cfg);
@@ -232,6 +236,12 @@ int get_container_mount_fstype(pid_t pid, const char *path, char *fstype,
 int detect_android_storage_in_container(pid_t pid);
 int detect_hw_access_in_container(pid_t pid);
 int is_mountpoint(const char *path);
+
+/* ---------------------------------------------------------------------------
+ * cgroup.c
+ * ---------------------------------------------------------------------------*/
+
+int setup_cgroups(void);
 
 /* ---------------------------------------------------------------------------
  * network.c

@@ -296,6 +296,12 @@ int check_requirements_detailed(void) {
   print_ds_check("ext4 filesystem", "Ext4 filesystem support",
                  grep_file("/proc/filesystems", "ext4"), "OPT");
 
+  print_ds_check("Cgroup v2 support", "Unified Control Group hierarchy support",
+                 grep_file("/proc/filesystems", "cgroup2"), "OPT");
+
+  print_ds_check("Cgroup namespace", "Control Group namespace isolation",
+                 check_ns(CLONE_NEWCGROUP, "cgroup"), "OPT");
+
   /* OPTIONAL */
   check_append("\n" C_BOLD "[OPTIONAL]" C_RESET
                "\nThese features are optional and only used for specific "

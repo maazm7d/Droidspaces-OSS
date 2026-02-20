@@ -15,6 +15,7 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/android.c \
        $(SRC_DIR)/android_seccomp.c \
        $(SRC_DIR)/mount.c \
+       $(SRC_DIR)/cgroup.c \
        $(SRC_DIR)/network.c \
        $(SRC_DIR)/terminal.c \
        $(SRC_DIR)/console.c \

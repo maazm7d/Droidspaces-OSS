@@ -245,11 +245,29 @@ int start_rootfs(struct ds_config *cfg) {
     setsid();
     prctl(PR_SET_NAME, "[ds-monitor]", 0, 0, 0);
 
-    /* Unshare namespaces - Monitor enters new UTS, IPC namespeces
-     * immediately. PID namespace unshare means only CHILDREN of the monitor
-     * will be in the new PID NS. Note: we no longer unshare MNT here so
+    /* Unshare namespaces - Monitor enters new UTS, IPC, and optionally Cgroup
+     * namespaces immediately. PID namespace unshare means only CHILDREN of the
+     * monitor will be in the new PID NS. Node: we no longer unshare MNT here so
      * monitor can cleanup host mounts. */
-    if (unshare(CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID) < 0)
+    int ns_flags = CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID;
+
+    /* Adaptive Cgroup Namespace (introduced in Linux 4.6) */
+    if (access("/proc/self/ns/cgroup", F_OK) == 0) {
+      /* To get isolation from a cgroup namespace, we must be in a sub-cgroup
+       * BEFORE we unshare. If we are in the root '/', the namespace root will
+       * be the host's root, providing zero isolation. */
+      if (access("/sys/fs/cgroup/cgroup.procs", F_OK) == 0) {
+        mkdir("/sys/fs/cgroup/droidspaces", 0755);
+        FILE *f = fopen("/sys/fs/cgroup/droidspaces/cgroup.procs", "we");
+        if (f) {
+          fprintf(f, "%d\n", getpid());
+          fclose(f);
+        }
+      }
+      ns_flags |= CLONE_NEWCGROUP;
+    }
+
+    if (unshare(ns_flags) < 0)
       ds_die("unshare failed: %s", strerror(errno));
 
     /* Fork Container Init (PID 1 inside) */
@@ -365,7 +383,8 @@ int start_rootfs(struct ds_config *cfg) {
     if (!booted) {
       ds_error("Container failed to boot correctly.");
       /* If pid is still alive, we might want to kill it, but monitor usually
-       * handles this. Let's just return error so parent doesn't report success.
+       * handles this. Let's just return error so parent doesn't report
+       * success.
        */
       return -1;
     }
@@ -392,8 +411,10 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
 
   ds_log("Stopping container '%s' (PID %d)...", cfg->container_name, pid);
 
-  /* Cleanup resources that need the process to be alive (like proc/pid/root) */
-  /* Actually, we call the full cleanup at the end, but let's grab rootfs now */
+  /* Cleanup resources that need the process to be alive (like proc/pid/root)
+   */
+  /* Actually, we call the full cleanup at the end, but let's grab rootfs now
+   */
   char rootfs[PATH_MAX] = "";
   char root_link[PATH_MAX];
   snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
