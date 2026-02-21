@@ -532,6 +532,13 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
     ds_log("Image checked and repaired successfully.");
   }
 
+  /*
+   * Settle time: Rapid restarts can cause "device busy" because the kernel
+   * might still be cleaning up the loop device or VFS locks.
+   */
+  sync();
+  usleep(200000); /* 200ms */
+
   ds_log("Mounting rootfs image %s on %s...", img_path, mount_point);
 
   /* Mount via loop device */
