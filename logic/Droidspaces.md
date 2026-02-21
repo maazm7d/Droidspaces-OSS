@@ -68,7 +68,10 @@ src/
 - **Strict Naming Architecture:** Enforces mandatory `--name` for image-based containers to ensure host-side infrastructure is predictable.
 - **CLI UX Refinement:** Restored flag permutation for the `enter` command and added support for comma-separated bind mounts (`-B src:dest,src2:dest2`).
 - **Namespace-Aware Cleanup (v3.3.0+):** Volatile mode cleanup is now namespace-aware. Since OverlayFS is mounted inside the container's private mount namespace, the kernel automatically unmounts it when the namespace dies.
-- **Adaptive Seccomp Shield (v3.3.0+):** Implements a kernel-aware BPF filter that resolves Keyring/FBE conflicts and prevents VFS deadlocks on legacy Android kernels (< 5.0) while remaining inactive on modern systems for Docker support.
+- **Adaptive Seccomp Shield (v3.3.0+):** Implements a kernel-aware BPF filter that resolves Keyring/FBE conflicts and prevents VFS deadlocks on legacy Android kernels (< 5.0).
+- **Cgroup Isolation & Session Fix (v4.2.0+):** 
+    - Implemented unique host-side cgroup trees per container: `/sys/fs/cgroup/droidspaces/<name>`.
+    - Fixed `su` and `login` hangs in entered terminals by physically attaching the entering process to the container's host cgroup *before* joining namespaces. This ensures `systemd-logind` correctly identifies the terminal session.
 
 
 ---
@@ -239,13 +242,12 @@ if (monitor_pid == 0) {
 - `CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID` — called in the monitor via `unshare()`
 - `CLONE_NEWUTS | CLONE_NEWIPC | CLONE_NEWPID | CLONE_NEWCGROUP` — called in the monitor via `unshare()`.
     
-**The Cgroup "Jail" Trick (v4.0.0+):**
-To achieve isolation on kernels with cgroup namespace support (4.6+), Droidspaces must be in a non-root cgroup *before* calling `unshare`. If the monitor remains in the host's root (`/`), the new namespace root will also be `/`, providing zero isolation.
-Droidspaces implements "Sub-Cgroup Jailing":
-1.  Creates `/sys/fs/cgroup/droidspaces`.
-2.  Moves itself into that cgroup (`cgroup.procs`).
+**The Cgroup "Jail" Trick (v4.2.0+):**
+To achieve isolation on kernels with cgroup namespace support (4.6+), Droidspaces must be in a non-root cgroup *before* calling `unshare`. 
+1.  Creates `/sys/fs/cgroup/droidspaces/<name>`.
+2.  Moves itself into that container-specific cgroup (`cgroup.procs`).
 3.  Calls `unshare(CLONE_NEWCGROUP)`.
-Result: Inside the container, `/sys/fs/cgroup` points to the `droidspaces` subtree on the host, naturally hiding all host processes and other containers.
+Result: Inside the container, `/sys/fs/cgroup` points to the container's private subtree on the host. This prevents name collisions between concurrent containers and ensures that `systemd` inside the container sees a clean, isolated hierarchy.
 
 This split is deliberate: the monitor retains the host mount namespace so it can perform cleanup (unmounting rootfs images, removing pidfiles, and clearing volatile overlays) after the container exits. The container init gets its own private mount namespace inside `internal_boot()`.
 
@@ -742,6 +744,12 @@ In v3.1.2, the `enter` and `run` commands use a sophisticated PTY attachment mod
 
 This fixes the "not a tty" errors and ensures that `tty` and `ps aux` show the correct `/dev/pts/N` device *relative to the container*.
 
+### 9.7 Cgroup Attachment (The `su` Fix)
+A critical architectural requirement for Systemd-based containers is that any process entering the container must be accounted for in the container's cgroup hierarchy.
+- **The Issue**: If a process enters namespaces but remains in the host's root cgroup (or the Droidspaces manager cgroup), `systemd-logind` and `sd-pam` inside the container will fail to map the process to a valid session. This results in the `su` command hanging indefinitely or failing to initialize the session.
+- **The Fix**: Before joining any namespaces, the `enter` command identifies the container's host-side cgroup path (`/sys/fs/cgroup/droidspaces/<name>`) and **physically attaches** the process to it by writing to `cgroup.procs`.
+- **Result**: Since the process is in the correct cgroup *before* it enters the PID/MNT namespaces, it is instantly recognized as "part of the container" by the container's init system, allowing `su`, `sudo`, and `login` to function natively without PAM workarounds.
+
 ### 9.3 The Double-Fork for PID Namespace
 
 After `setns(CLONE_NEWPID)`, a `fork()` is required because the calling process remains in its original PID namespace:
@@ -1184,12 +1192,13 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 ### Phase 7: Enter
 
 52. Read PID from pidfile
-53. Open `/proc/<pid>/ns/{mnt,uts,ipc,pid}` — all FDs at once
-54. `setns()` for each
-55. `fork()` (required after `setns(CLONE_NEWPID)`)
-56. In child: `fork()` again to actually be in the new PID namespace
-57. `clearenv()`, set environment, source `/etc/environment`
-58. `execve()` shell: try `/bin/bash`, `/bin/ash`, `/bin/sh`
+53. **Cgroup Attachment**: Attach the process to the container's host-side cgroup (`/sys/fs/cgroup/droidspaces/<name>`).
+54. Open `/proc/<pid>/ns/{mnt,uts,ipc,pid}` — all FDs at once
+55. `setns()` for each
+56. `fork()` (required after `setns(CLONE_NEWPID)`)
+57. In child: `fork()` again to actually be in the new PID namespace
+58. `clearenv()`, set environment, source `/etc/environment`
+59. `execve()` shell: try `/bin/bash`, `/bin/ash`, `/bin/sh`
 
 ---
 
