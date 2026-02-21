@@ -91,7 +91,10 @@ int ds_setup_tios(int fd, struct termios *old) {
 #ifdef IEXTEN
   new_tios.c_lflag &= (tcflag_t)~IEXTEN;
 #endif
-  new_tios.c_oflag &= (tcflag_t)~ONLCR;
+  /* Keep host's ONLCR enabled to avoid staircase output if the container side
+   * stops sending \r (e.g. during shutdown or sudo execution). Duplicate \r
+   * are harmless. */
+  // new_tios.c_oflag &= (tcflag_t)~ONLCR;
   new_tios.c_oflag |= OPOST;
   new_tios.c_cc[VMIN] = 1;
   new_tios.c_cc[VTIME] = 0;

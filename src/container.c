@@ -214,6 +214,20 @@ int start_rootfs(struct ds_config *cfg) {
   cfg->tty_count = DS_MAX_TTYS;
   if (ds_terminal_create(&cfg->console) < 0)
     ds_die("Failed to allocate console PTY");
+
+  /* Propagate the host terminal's window size to the console PTY master
+   * so the slave (which becomes /dev/console) has correct dimensions
+   * from the very start of boot. This prevents misaligned output during
+   * the window between PTY creation and the console_monitor_loop startup.
+   * Without this, 'sudo poweroff' output is misaligned for the first
+   * ~10 lines because sudo resets/queries the terminal size and finds
+   * a {0,0} winsize on the PTY slave. */
+  if (isatty(STDIN_FILENO)) {
+    struct winsize ws;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0)
+      ioctl(cfg->console.master, TIOCSWINSZ, &ws);
+  }
+
   for (int i = 0; i < cfg->tty_count; i++) {
     if (ds_terminal_create(&cfg->ttys[i]) < 0)
       break;
@@ -583,21 +597,29 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
     close(tty.master);
     close(sv[1]);
 
-    /* Establish controlling terminal using the native slave */
-    if (ds_terminal_make_controlling(tty.slave) < 0)
-      exit(EXIT_FAILURE);
-
-    if (ds_terminal_set_stdfds(tty.slave) < 0)
-      exit(EXIT_FAILURE);
-
-    if (tty.slave > STDERR_FILENO)
-      close(tty.slave);
-
     /* Must fork again to actually be in the new PID namespace */
     pid_t shell_pid = fork();
     if (shell_pid < 0)
       exit(EXIT_FAILURE);
     if (shell_pid == 0) {
+      /* Establish controlling terminal in the FINAL child process.
+       * This is critical: setsid() + TIOCSCTTY must happen in the
+       * process that will exec the shell, so that programs like
+       * 'login' can properly re-acquire the controlling terminal
+       * via their own setsid(). If we did this in the intermediate
+       * parent, login's setsid() would detach from the ctty but
+       * could never re-acquire it (the intermediate still owns it),
+       * causing a hang. This matches how LXC does it in
+       * lxc_terminal_prepare_login(). */
+      if (ds_terminal_make_controlling(tty.slave) < 0)
+        exit(EXIT_FAILURE);
+
+      if (ds_terminal_set_stdfds(tty.slave) < 0)
+        exit(EXIT_FAILURE);
+
+      if (tty.slave > STDERR_FILENO)
+        close(tty.slave);
+
       if (chdir("/") < 0)
         exit(EXIT_FAILURE);
 
@@ -627,6 +649,8 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
       ds_error("Failed to find any usable shell");
       exit(EXIT_FAILURE);
     }
+    /* Intermediate: close slave fd we no longer need, wait for shell */
+    close(tty.slave);
     waitpid(shell_pid, NULL, 0);
     exit(EXIT_SUCCESS);
   }
@@ -641,6 +665,15 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
     ds_error("Failed to receive PTY master from child");
     waitpid(child, NULL, 0);
     return -1;
+  }
+
+  /* Synchronize window size BEFORE starting setup to avoid race with child
+   * exec. This ensures htop/nano see the correct size immediately upon startup.
+   */
+  if (isatty(STDIN_FILENO)) {
+    struct winsize ws;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0)
+      ioctl(master_fd, TIOCSWINSZ, &ws);
   }
 
   /* Parent: setup host terminal and proxy I/O */

@@ -233,6 +233,21 @@ int internal_boot(struct ds_config *cfg) {
   if (console_fd >= 0) {
     ds_terminal_set_stdfds(console_fd);
     ds_terminal_make_controlling(console_fd);
+
+    /* Set a sane default window size on the console PTY if none was set.
+     * The parent's console_monitor_loop will overwrite this with the
+     * real host terminal size via SIGWINCH, but we need a reasonable
+     * default so early boot output (before the parent syncs) is
+     * properly aligned. Without this, programs like sudo that query
+     * the terminal size get {0,0} and produce misaligned output. */
+    struct winsize ws;
+    if (ioctl(console_fd, TIOCGWINSZ, &ws) == 0 && ws.ws_col == 0 &&
+        ws.ws_row == 0) {
+      ws.ws_row = 24;
+      ws.ws_col = 80;
+      ioctl(console_fd, TIOCSWINSZ, &ws);
+    }
+
     /* Sticky permissions again just in case systemd's TTYReset stripped them */
     fchmod(console_fd, 0620);
     fchown(console_fd, 0, 5);
