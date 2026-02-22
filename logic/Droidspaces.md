@@ -6,7 +6,7 @@
 
 Droidspaces is a lightweight, zero-virtualization container runtime designed to run full Linux distributions (Ubuntu, Alpine, etc.) with systemd or openrc as PID 1, natively on Android devices. It achieves process isolation through Linux PID, IPC, MNT, and UTS namespaces — the same kernel primitives used by Docker and LXC — but targets the constrained and idiosyncratic Android kernel environment where many standard container tools refuse to operate.
 
-This document is a complete internal architecture reference for **Droidspaces v4.2.4**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
+This document is a complete internal architecture reference for **Droidspaces v4.3.0**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
 
 The codebase is approximately **3,300 lines of C** across 12 `.c` files and 1 master header, compiled as a single static binary against musl libc.
 
@@ -84,6 +84,9 @@ src/
     - Refactored `ds_get_dns_servers` to support an arbitrary number of DNS servers (comma or space separated).
     - Hardened DNS propagation by switching to a rootfs-relative path (`/.dns_servers`) inside the container after `pivot_root`, ensuring persistence even when host paths are obscured.
     - Added explicit cleanup for the temporary marker file.
+- **Sparse Image SELinux Hardening (v4.3.0):**
+    - Resolved silent loop mount I/O errors on certain Android devices by applying the `vold_data_file` SELinux context to `.img` files.
+    - Context is applied automatically in the C backend before mounting and persistent through the Magisk boot module for all existing containers.
 
 
 ---
@@ -212,6 +215,7 @@ Before any forking, `start_rootfs()` in `container.c` performs:
 5. **Rootfs image mount:** If `-i` provided, `mount_rootfs_img()` is called:
    - It runs `e2fsck -f -y` to ensure filesystem integrity.
    - It identifies a descriptive mount point at `/mnt/Droidspaces/<name>`.
+   - **SELinux Hardening**: Applies the `u:object_r:vold_data_file:s0` context to the image file to avoid silent I/O denials during loop-mount operations.
    - If `--volatile` is active, the image is mounted **Read-Only** (`-o loop,ro`) for maximum safety.
 6. **UUID generation:** 32 hex chars from `/dev/urandom`
 7. **PTY allocation (LXC model):**
@@ -1088,6 +1092,7 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 7. **Rootfs image mount**: If `-i` provided:
    - Identify host-side mount point at `/mnt/Droidspaces/<name>`.
    - `e2fsck -f -y <img>`
+   - **SELinux Hardening**: Apply `u:object_r:vold_data_file:s0` to the image file via `chcon` before mounting to prevent silent I/O failures.
    - **Mount with Retry (4.14 resilience)**: Try `mount -o loop,ro <img> <mount_point>`. If it fails (common on Kernel 4.14 due to stale loop state), the system calls `sync()`, waits 1 second, and retries up to 3 times. Log output only shows the "Attempt X/Y" counter if the first try fails.
 
 8. **Allocate PTYs in the parent** (LXC model):
