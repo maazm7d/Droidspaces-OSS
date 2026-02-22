@@ -579,27 +579,28 @@ int unmount_rootfs_img(const char *mount_point, int silent) {
   if (!silent)
     ds_log("Unmounting rootfs image from %s...", mount_point);
 
-  /* 1. Flush and try lazy unmount first (most reliable for detached loop
-   * mounts) */
+  /* 1. Flush and try lazy unmount first */
   sync();
   if (umount2(mount_point, MNT_DETACH) < 0) {
-    /* Fallback to shell command with loop detach */
+    /* Fallback to shell command if detached unmount failed */
     char *umount_argv[] = {"umount", "-d", "-l", (char *)(uintptr_t)mount_point,
                            NULL};
     run_command_quiet(umount_argv);
   }
 
-  /* 2. Give the kernel a moment to settle the unmount (critical for loop
-   * devices) */
+  /* 2. Settle loop devices */
   sync();
-  usleep(100000); /* 100ms */
+  usleep(200000); /* 200ms */
 
-  /* 3. Try to remove the directory */
-  if (rmdir(mount_point) < 0 && errno != ENOENT) {
-    /* If it failed because it wasn't empty, it might still be a mountpoint or
-     * contain files. Try one more time with a slightly longer wait. */
-    usleep(200000);
-    rmdir(mount_point);
+  /* 3. Try to remove the directory, retry if necessary */
+  int retries = 3;
+  while (retries-- > 0) {
+    if (rmdir(mount_point) == 0 || errno == ENOENT)
+      break;
+    if (is_mountpoint(mount_point)) {
+      umount2(mount_point, MNT_DETACH | MNT_FORCE);
+    }
+    usleep(100000);
   }
 
   return 0;
