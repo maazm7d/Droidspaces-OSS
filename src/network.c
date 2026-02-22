@@ -17,7 +17,7 @@ int ds_get_dns_servers(const char *custom_dns, char *out, size_t size) {
 
   /* 0. Try custom DNS if provided */
   if (custom_dns && custom_dns[0]) {
-    char buf[256];
+    char buf[1024];
     safe_strncpy(buf, custom_dns, sizeof(buf));
     char *saveptr;
     char *token = strtok_r(buf, ", ", &saveptr);

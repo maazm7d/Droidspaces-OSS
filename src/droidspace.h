@@ -56,7 +56,7 @@
  * ---------------------------------------------------------------------------*/
 
 #define DS_PROJECT_NAME "Droidspaces"
-#define DS_VERSION "4.2.4"
+#define DS_VERSION "4.2.5"
 #define DS_MIN_KERNEL_MAJOR 3
 #define DS_MIN_KERNEL_MINOR 18
 #define DS_AUTHOR "ravindu644, Antigravity"
@@ -142,7 +142,7 @@ struct ds_config {
   char pidfile[PATH_MAX];         /* --pidfile= or auto-resolved */
   char container_name[256];       /* --name= or auto-generated */
   char hostname[256];             /* --hostname= or container_name */
-  char dns_servers[256];          /* --dns= (comma/space separated) */
+  char dns_servers[1024];         /* --dns= (comma/space separated) */
 
   /* UUID for PID discovery */
   char uuid[DS_UUID_LEN + 1];
