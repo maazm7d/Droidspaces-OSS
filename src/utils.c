@@ -261,6 +261,58 @@ int build_proc_root_path(pid_t pid, const char *suffix, char *buf,
   return (r > 0 && (size_t)r < size) ? 0 : -1;
 }
 
+int parse_os_release(const char *rootfs_path, char *id_out, char *ver_out,
+                     size_t out_size) {
+  char path[PATH_MAX];
+  snprintf(path, sizeof(path), "%s/etc/os-release", rootfs_path);
+
+  char buf[4096];
+  if (read_file(path, buf, sizeof(buf)) < 0)
+    return -1;
+
+  /* Default values */
+  safe_strncpy(id_out, "linux", out_size);
+  if (ver_out)
+    ver_out[0] = '\0';
+
+  /* Parse ID */
+  char *p = strstr(buf, "\nID=");
+  if (!p && strncmp(buf, "ID=", 3) == 0)
+    p = buf;
+
+  if (p) {
+    if (*p == '\n')
+      p++;
+    p += 3;
+    if (*p == '"')
+      p++;
+    int i = 0;
+    while (p[i] && p[i] != '"' && p[i] != '\n' && (size_t)i < out_size - 1) {
+      id_out[i] = p[i];
+      i++;
+    }
+    id_out[i] = '\0';
+  }
+
+  /* Parse VERSION_ID */
+  if (ver_out) {
+    p = strstr(buf, "VERSION_ID=");
+    if (p) {
+      p += 11;
+      if (*p == '"')
+        p++;
+      int i = 0;
+      while (p[i] && p[i] != '"' && p[i] != '\n' && (size_t)i < out_size - 1) {
+        ver_out[i] = p[i];
+        i++;
+      }
+      ver_out[i] = '\0';
+    }
+  }
+
+  return 0;
+}
+
 /* ---------------------------------------------------------------------------
  * Grep file for a pattern (simple substring search)
  * ---------------------------------------------------------------------------*/
@@ -288,8 +340,13 @@ int read_and_validate_pid(const char *pidfile, pid_t *pid_out) {
     return -1;
   }
 
-  /* check if process exists */
+  /* check if process exists and is a valid Droidspaces container */
   if (kill((pid_t)val, 0) < 0 && errno == ESRCH) {
+    *pid_out = 0;
+    return -1;
+  }
+
+  if (!is_valid_container_pid((pid_t)val)) {
     *pid_out = 0;
     return -1;
   }
