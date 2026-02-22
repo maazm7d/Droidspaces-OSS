@@ -6,3 +6,5 @@ output
 *.md
 old_code_with_android-app/
 logs/
+*.img
+*.txt

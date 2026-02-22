@@ -6,7 +6,7 @@
 
 Droidspaces is a lightweight, zero-virtualization container runtime designed to run full Linux distributions (Ubuntu, Alpine, etc.) with systemd or openrc as PID 1, natively on Android devices. It achieves process isolation through Linux PID, IPC, MNT, and UTS namespaces — the same kernel primitives used by Docker and LXC — but targets the constrained and idiosyncratic Android kernel environment where many standard container tools refuse to operate.
 
-This document is a complete internal architecture reference for **Droidspaces v4.1.0**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
+This document is a complete internal architecture reference for **Droidspaces v4.2.2**. Every struct, every syscall, every mount, and every design decision is documented here with the intent that a future implementer could rewrite this project from scratch without ever reading the original source. Where the implementation is elegant, I say so. Where it is broken or fragile, I say so with equal honesty.
 
 The codebase is approximately **3,300 lines of C** across 12 `.c` files and 1 master header, compiled as a single static binary against musl libc.
 
@@ -72,6 +72,10 @@ src/
 - **Cgroup Isolation & Session Fix (v4.2.0+):** 
     - Implemented unique host-side cgroup trees per container: `/sys/fs/cgroup/droidspaces/<name>`.
     - Fixed `su` and `login` hangs in entered terminals by physically attaching the entering process to the container's host cgroup *before* joining namespaces. This ensures `systemd-logind` correctly identifies the terminal session.
+- **Fast Container Restart (v4.2.2+):**
+    - Implemented a filesystem-based coordination marker (`.restart`) to synchronize state between the `restart` command and the background monitor process.
+    - Moves the mount reuse check (`.mount` sidecar) to the very beginning of the boot sequence, bypassing expensive name resolution and `e2fsck`.
+    - Sanitized PID management to remove filesystem side-effects during status checks and name discovery, ensuring tracking state is preserved for the next boot.
 
 
 ---
@@ -177,7 +181,7 @@ Here's the high-level flow from `start` to `stop`, distilled to its essence:
         └────────────────┘                               │
 ```
 
-**Key insight:** The monitor process (`[ds-monitor]`) creates the namespace via `unshare()`, then forks the container init (PID 1). The monitor stays alive via `waitpid()` on init — it holds all PTY master FDs open for the lifetime of the container. When init exits, the monitor calls `cleanup_container_resources()` and exits.
+**Key insight:** The monitor process (`[ds-monitor]`) creates the namespace via `unshare()`, then forks the container init (PID 1). The monitor stays alive via `waitpid()` on init — it holds all PTY master FDs open for the lifetime of the container. When init exits, the monitor checks for a **restart marker**; if absent, it calls `cleanup_container_resources()`.
 
 **The parent** receives the init PID from the monitor via a sync pipe, saves it to the pidfile, and either enters the foreground console loop or exits after displaying status info.
 
@@ -832,16 +836,22 @@ cleanup_container_resources(cfg, 0, skip_unmount);
 - Remove `.mount` sidecar file
 - Remove pidfile
 
-### 10.2 Restart
+- **Restart Coordination (v4.2.2+)**: If `skip_unmount` is true, `stop_rootfs()` creates a `.restart` marker file in the PIDs directory. The monitor process uses this to skip its automatic resource cleanup, preserving the loop mount and pidfile for the subsequent `start` command.
 
-Restart is simply stop + start with the `skip_unmount` flag:
+### 10.2 Restart (Fast Path)
 
-```c
-int restart_rootfs(struct ds_config *cfg) {
-    stop_rootfs(cfg, 1);  // skip_unmount to keep rootfs.img attached
-    return start_rootfs(cfg);
-}
-```
+Restart is an orchestrated `stop` + `start` that leverages the coordination marker for a "fast-path" boot:
+
+1. **Stop (Orchestration)**: Calls `stop_rootfs(cfg, 1)`.
+   - Creates the `.restart` marker.
+   - Kills the container init.
+2. **Monitor (Preservation)**: Detects the marker after `waitpid()` returns and exits *without* calling `cleanup_container_resources()`. This avoids unmounting the rootfs.
+3. **Start (Reuse)**: Calls `start_rootfs(cfg)`.
+   - **Early Detection**: Checks for the marker as the first operation.
+   - **Mount Reuse**: If the marker exists, it resolves the pidfile, reads the `.mount` sidecar, and identifies the existing host-side mount point.
+   - **Fast Boot**: It adopts the existing mount as `cfg->rootfs_path` and skips name generation, image mounting, and `e2fsck`.
+
+This ensures restarts are near-instant (under 200ms) and robust against race conditions between the CLI and background monitor.
 
 ### 10.3 Multi-Container Stop
 
@@ -1050,13 +1060,18 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
    - `hostname`
    - `foreground`, `hw_access`, `enable_ipv6`, `android_storage`, `selinux_permissive`
 
-2. Validate rootfs path exists and contains `/sbin/init`
+2. **Early Restart Detection**: 
+   - Check for `.restart` marker in PIDs directory.
+   - If present, consume the marker, resolve pidfile, and read `.mount` sidecar to identify existing mount.
+   - If mount active, set `cfg->rootfs_path` and `restart_reuse = 1`.
 
-3. Resolve pidfile path: `<workspace>/Pids/<name>.pid`
+3. Validate rootfs path exists and contains `/sbin/init`.
 
-4. Check if already running: `kill(saved_pid, 0)` + validate
+4. Resolve pidfile path: `<workspace>/Pids/<name>.pid`.
 
-5. Run requirements check: namespaces, devtmpfs, pivot_root
+5. Check if already running: `kill(saved_pid, 0)` + validate.
+
+6. Run requirements check: namespaces, devtmpfs, pivot_root
 
 ### Phase 2: Pre-Fork Setup (in parent)
 
@@ -1088,7 +1103,10 @@ If you're rewriting Droidspaces from scratch, here is the checklist of every dec
 
 14. Monitor sends `init_pid` to parent via sync pipe
 
-15. Monitor: `waitpid(init_pid)`, then `cleanup_container_resources()`, then exit
+15. Monitor: `waitpid(init_pid)`.
+    - Check for `.restart` marker.
+    - If absent, call `cleanup_container_resources()`.
+    - Exit.
 
 ### Phase 4: internal_boot() (runs as PID 1)
 
