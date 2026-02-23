@@ -328,6 +328,8 @@ int main(int argc, char **argv) {
   if (strcmp(cmd, "restart") == 0) {
     if (validate_kernel_version() < 0)
       return 1;
+    if (cfg.rootfs_path[0] == '\0' && cfg.rootfs_img_path[0] == '\0')
+      ds_die("--rootfs or --rootfs-img is required for restart");
     if (check_requirements() < 0)
       return 1;
     return restart_rootfs(&cfg);
