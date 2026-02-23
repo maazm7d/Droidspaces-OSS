@@ -19,27 +19,32 @@ What makes Droidspaces unique is its **zero-dependency, native execution** on bo
 
 **Android** + **Linux Namespaces** = **Droidspaces**. Since Android is built on the Linux kernel, Droidspaces works seamlessly on Linux Desktop too. Both platforms are equally supported and maintained.
 
+<details>
+<summary><b>View Project's Screenshots (Linux & Android)</b></summary>
+
 <table align="center">
   <tr>
     <td colspan="2" align="center">
       <b>Linux Showcase</b><br>
       <i>Linux Mint in volatile + --hw-access + foreground mode</i><br>
-      <img src="Documentation/resources/linux/linux-showcase.png" width="100%">
+      <img src="Documentation/resources/linux/linux-showcase.png" width="90%">
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>Android Home</b><br>
       <i>Beautiful home screen</i><br>
-      <img src="Documentation/resources/android/home.jpg" width="100%">
+      <img src="Documentation/resources/android/home.jpg" width="85%">
     </td>
     <td align="center">
       <b>Android Containers</b><br>
       <i>2 containers installed in the container menu</i><br>
-      <img src="Documentation/resources/android/containers.jpg" width="100%">
+      <img src="Documentation/resources/android/containers.jpg" width="85%">
     </td>
   </tr>
 </table>
+
+</details>
 
 ---
 
