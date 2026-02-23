@@ -8,3 +8,7 @@ old_code_with_android-app/
 logs/
 *.img
 *.txt
+
+# Keystores
+*.keystore
+local.properties

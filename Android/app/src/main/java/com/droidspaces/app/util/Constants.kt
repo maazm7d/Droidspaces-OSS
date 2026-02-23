@@ -1,0 +1,68 @@
+package com.droidspaces.app.util
+
+/**
+ * Centralized constants for the entire application.
+ * Single source of truth for all paths, keys, and configuration values.
+ */
+object Constants {
+    // Installation paths
+    const val INSTALL_PATH = "/data/local/Droidspaces/bin"
+    const val DROIDSPACES_BINARY_NAME = "droidspaces"
+    const val BUSYBOX_BINARY_NAME = "busybox"
+    const val DROIDSPACES_BINARY_PATH = "$INSTALL_PATH/$DROIDSPACES_BINARY_NAME"
+    const val BUSYBOX_BINARY_PATH = "$INSTALL_PATH/$BUSYBOX_BINARY_NAME"
+
+    // Container paths
+    const val CONTAINERS_BASE_PATH = "/data/local/Droidspaces/Containers"
+    const val CONTAINER_CONFIG_FILE = "container.config"
+
+    // Preferences keys
+    const val PREFS_NAME = "droidspaces_prefs"
+    const val KEY_SETUP_COMPLETED = "setup_completed"
+    const val KEY_ROOT_CHECKED = "root_checked"
+    const val KEY_ROOT_SKIPPED = "root_skipped"
+    const val KEY_ROOT_AVAILABLE = "root_available"
+    const val KEY_ROOT_PROVIDER_VERSION = "root_provider_version"
+    const val KEY_DROIDSPACES_VERSION = "droidspaces_version"
+    const val KEY_CONTAINER_COUNT = "container_count"
+    const val KEY_RUNNING_COUNT = "running_count"
+    const val KEY_BACKEND_STATUS = "backend_status"
+    const val KEY_FOLLOW_SYSTEM_THEME = "follow_system_theme"
+    const val KEY_DARK_THEME = "dark_theme"
+    const val KEY_AMOLED_MODE = "amoled_mode"
+    const val KEY_USE_DYNAMIC_COLOR = "use_dynamic_color"
+    const val KEY_APP_LOCALE = "app_locale"
+
+    // Container log cache prefix
+    const val KEY_CONTAINER_LOG_PREFIX = "container_log_"
+    const val KEY_CONTAINER_OS_INFO_PREFIX = "container_os_info_"
+    const val KEY_CONTAINER_USERS_PREFIX = "container_users_"
+
+    // Minimum storage requirements
+    const val MIN_STORAGE_GB = 4
+
+    // Maximum bind mounts (matches backend DS_MAX_BINDS)
+    const val MAX_BIND_MOUNTS = 16
+
+    // Maximum DNS servers
+    const val MAX_DNS_SERVERS = 8
+
+    // Pull-to-refresh animation delay (ms) - smooth refresh indicator animation
+    const val PULL_TO_REFRESH_ANIMATION_DELAY = 200L
+
+    /**
+     * Check if droidspaces binary is available in system PATH
+     * Returns the command to use (either "droidspaces" if in PATH, or full path otherwise)
+     */
+    fun getDroidspacesCommand(): String {
+        val result = com.topjohnwu.superuser.Shell.cmd("command -v droidspaces 2>&1").exec()
+        return if (result.isSuccess && result.out.isNotEmpty() && result.out[0].isNotBlank()) {
+            // droidspaces is in PATH, use just the command name
+            "droidspaces"
+        } else {
+            // droidspaces is not in PATH, use full path
+            DROIDSPACES_BINARY_PATH
+        }
+    }
+}
+
