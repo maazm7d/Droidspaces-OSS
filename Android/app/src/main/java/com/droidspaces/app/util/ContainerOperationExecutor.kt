@@ -1,24 +1,32 @@
 package com.droidspaces.app.util
 
 import android.util.Log
+import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 
 /**
- * Executes container operations (start/stop/restart) using logger callback pattern.
- * Optimized for real-time log streaming with zero overhead.
+ * Executes container operations (start/stop/restart) with TRUE real-time output streaming.
  *
- * Note: libsu's Shell.cmd().exec() waits for command completion, so true real-time
- * streaming isn't possible. However, we optimize by processing output efficiently
- * and ensuring logs are added to the UI state immediately.
+ * Uses libsu's CallbackList API to receive each line of output as the binary produces it.
+ * Each line is immediately dispatched to the logger callback, which updates the UI via
+ * Dispatchers.Main.immediate for instant rendering in the TerminalConsole.
+ *
+ * Flow: Binary stdout → CallbackList.onAddElement() → ViewModelLogger → TerminalConsole
  */
 object ContainerOperationExecutor {
+    // Pre-compiled error pattern for efficient matching
+    private val errorPattern = Regex("""(?i)(error|failed|fail)""")
+
     /**
-     * Execute a container command and log output using logger callback.
-     * Optimized for performance - processes output efficiently and logs immediately.
-     * The logger callback should handle thread safety (ViewModelLogger uses Main dispatcher).
+     * Execute a container command with real-time output streaming.
+     *
+     * Each line from the binary appears in the pop-up terminal immediately as it's printed.
+     * The coroutine blocks on exec() until the process exits, but output streams in real-time
+     * via CallbackList's onAddElement() callback.
      */
     suspend fun executeCommand(
         command: String,
@@ -33,58 +41,40 @@ object ContainerOperationExecutor {
                 logger.i("")
             }
 
-            // Execute command - capture both stdout and stderr
-            // Use 2>&1 to redirect stderr to stdout for unified output
-            val result = Shell.cmd("$command 2>&1").exec()
-
-            // Process output lines efficiently - log immediately for real-time feel
-            // Pre-compile regex patterns for better performance
-            val errorPattern = Regex("""(?i)(error|failed|fail)""")
-
-            // Track if last line was empty to avoid double newlines
+            // Track if last line was empty (for final status formatting)
             var lastLineWasEmpty = false
 
-            if (result.out.isNotEmpty()) {
-                result.out.forEach { line ->
-                    // Check cancellation to avoid unnecessary work
-                    ensureActive()
-
-                    // Preserve empty lines - they are important for formatting
-                    // Only trim for error detection, but log the original line
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty()) {
-                        // Empty line - log as-is to preserve formatting
-                        logger.i("")
-                        lastLineWasEmpty = true
-                    } else {
-                        // Determine log level based on content (error keywords)
-                        // Use regex for efficient pattern matching
-                        if (errorPattern.containsMatchIn(trimmed)) {
-                            logger.e(line) // Log original line to preserve formatting
+            // Create a CallbackList that streams each output line to the logger in real-time.
+            // onAddElement() is called by libsu on the main thread (default executor) as each
+            // line arrives from the process, BEFORE exec() returns.
+            val callbackList = object : CallbackList<String>() {
+                override fun onAddElement(s: String?) {
+                    s ?: return
+                    // Launch a coroutine on Main to call suspend logger functions.
+                    // This is fire-and-forget since onAddElement is synchronous.
+                    MainScope().launch {
+                        val trimmed = s.trim()
+                        if (trimmed.isEmpty()) {
+                            logger.i("")
+                            lastLineWasEmpty = true
                         } else {
-                            logger.i(line) // Log original line to preserve formatting
+                            if (errorPattern.containsMatchIn(trimmed)) {
+                                logger.e(s) // Log original line to preserve ANSI formatting
+                            } else {
+                                logger.i(s) // Log original line to preserve ANSI formatting
+                            }
+                            lastLineWasEmpty = false
                         }
-                        lastLineWasEmpty = false
-                    }
-                }
-            } else if (result.err.isNotEmpty()) {
-                // If no stdout but has stderr, log stderr as errors
-                result.err.forEach { line ->
-                    ensureActive()
-                    val trimmed = line.trim()
-                    if (trimmed.isEmpty()) {
-                        // Empty line - log as-is to preserve formatting
-                        logger.e("")
-                        lastLineWasEmpty = true
-                    } else {
-                        logger.e(line) // Log original line to preserve formatting
-                        lastLineWasEmpty = false
                     }
                 }
             }
 
+            // Execute command with real-time streaming via CallbackList.
+            // 2>&1 merges stderr into stdout for unified output handling.
+            // exec() blocks until the process exits, but callbackList fires per-line.
+            val result = Shell.cmd("$command 2>&1").to(callbackList).exec()
+
             // Log result status - only add newline if last output line wasn't empty
-            // Always show result status, but skip header messages for operations like "check"
             if (!lastLineWasEmpty) {
                 logger.i("")
             }
@@ -114,4 +104,3 @@ object ContainerOperationExecutor {
         }
     }
 }
-
