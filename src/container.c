@@ -563,8 +563,19 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   if (len > 0)
     rootfs[len] = '\0';
 
-  /* 1. Try graceful shutdown (SIGRTMIN+3 is systemd poweroff) */
+  /* 1. Try graceful shutdown with a "signal bucket" to support multiple init
+   * systems:
+   * - SIGRTMIN+3: Standard systemd poweroff signal in containers.
+   * - SIGTERM: Universal signal for graceful termination (Alpine/OpenRC reacts
+   * to this).
+   * - SIGPWR: Universal power failure signal (often used by LXC/SysVinit for
+   * shutdown).
+   */
   kill(pid, SIGRTMIN + 3);
+  kill(pid, SIGTERM);
+  kill(pid, SIGPWR);
+  ds_log("Waiting for graceful shutdown (this may take up to %d seconds)...",
+         DS_STOP_TIMEOUT);
 
   /* 2. Wait for exit */
   int stopped = 0;
@@ -574,10 +585,6 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
       break;
     }
     usleep(200000); /* 200ms */
-    if (i == 10) {
-      ds_log("Graceful stop in progress, sending SIGTERM...");
-      kill(pid, SIGTERM); /* Fallback to SIGTERM after 2s */
-    }
   }
 
   /* 3. Force kill if still running */

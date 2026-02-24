@@ -66,7 +66,7 @@
 #define DS_MAX_TTYS 6
 #define DS_UUID_LEN 32
 #define DS_MAX_CONTAINERS 1024
-#define DS_STOP_TIMEOUT 8 /* seconds */
+#define DS_STOP_TIMEOUT 15 /* seconds */
 #define DS_PID_SCAN_RETRIES 20
 #define DS_PID_SCAN_DELAY_US 200000 /* 200ms */
 
