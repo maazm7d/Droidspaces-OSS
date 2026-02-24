@@ -524,7 +524,7 @@ int start_rootfs(struct ds_config *cfg) {
       return -1;
     }
 
-    show_info(cfg);
+    show_info(cfg, 1);
     ds_log("Container '%s' is running in background.", cfg->container_name);
     if (is_android()) {
       ds_log("Use 'su -c \"%s --name='%s' enter\"' to connect.", cfg->prog_name,
@@ -959,7 +959,7 @@ static void get_os_pretty_from_path(const char *osrelease_path, char *buf,
   fclose(fp);
 }
 
-int show_info(struct ds_config *cfg) {
+int show_info(struct ds_config *cfg, int trust_cfg_pid) {
   /* Host info */
   const char *host = is_android() ? "Android" : "Linux";
   const char *arch = get_architecture();
@@ -997,7 +997,15 @@ int show_info(struct ds_config *cfg) {
   }
 
   pid_t pid = 0;
-  read_and_validate_pid(cfg->pidfile, &pid);
+
+  if (trust_cfg_pid && cfg->container_pid > 0) {
+    // Trust the PID we just got from the sync pipe
+    pid = cfg->container_pid;
+    // We assume it's running because parent waited for boot marker
+  } else {
+    // For other calls (e.g., status command), read and validate from pidfile
+    read_and_validate_pid(cfg->pidfile, &pid);
+  }
 
   printf("\n" C_GREEN "Container:" C_RESET " %s (%s)\n", cfg->container_name,
          pid > 0 ? "RUNNING" : "STOPPED");

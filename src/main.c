@@ -379,7 +379,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (strcmp(cmd, "info") == 0)
-    return show_info(&cfg);
+    return show_info(&cfg, 0);
 
   if (strcmp(cmd, "enter") == 0) {
     if (validate_kernel_version() < 0)

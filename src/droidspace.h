@@ -328,7 +328,7 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount);
 int enter_namespace(pid_t pid);
 int enter_rootfs(struct ds_config *cfg, const char *user);
 int run_in_rootfs(struct ds_config *cfg, int argc, char **argv);
-int show_info(struct ds_config *cfg);
+int show_info(struct ds_config *cfg, int trust_cfg_pid);
 int restart_rootfs(struct ds_config *cfg);
 
 /* ---------------------------------------------------------------------------
