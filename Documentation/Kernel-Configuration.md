@@ -195,11 +195,10 @@ This checks for:
 
 | Version | Support | Notes |
 |---------|---------|-------|
-| 3.18 | Minimum | Basic support. Some features may be limited. No nested container support. |
-| 4.14 | Stable | Full support with seccomp shield and mount retry logic. No nested container support. |
-| 4.19 | Stable | Last pre-GKI kernel. Reliable. No nested container support (under investigation for future support). |
-| 5.10 | Recommended | Full feature support, including nested containers and modern cgroup v2. |
-| 5.15+ | Ideal | All features, best performance, and widest compatibility. |
+| 3.18 - 4.4 | Legacy | **Minimum floor.** Basic namespace support. Modern distros (Ubuntu/Debian) are unstable; Alpine is recommended. |
+| 4.9 - 4.19 | Stable | **Hardened.** Full support with adaptive Seccomp shield and mount retry logic. |
+| 5.4 - 5.10 | Recommended | **Mainline.** Full feature support, including nested containers and modern Cgroup v2. |
+| 5.15+ | Ideal | **Premium.** All features, best performance, and widest compatibility. |
 
 ---
 

@@ -202,7 +202,21 @@ chcon u:object_r:vold_data_file:s0 /path/to/rootfs.img
 
 ---
 
-## WiFi/Mobile Data Disconnects
+---
+220: 
+221: ## Modern Distros (Ubuntu/Debian) on Legacy Kernels (3.18 - 4.4)
+222: 
+223: **Symptoms:** Container starts but hangs during boot, fails to start services, or crashes immediately with various syscall errors.
+224: 
+225: **Cause:** Modern distributions like Ubuntu 22.04+ or Debian 12+ rely on kernel features (seccomp filters, cgroup v2, namespace isolation) that are incomplete or buggy on kernels older than 4.9.
+226: 
+227: **Solution:** 
+228: - Use **Alpine Linux** for these devices; it is minimalist and highly compatible with legacy kernels.
+229: - If you must use a modern distro, consider finding or compiling a newer kernel (4.14+) for your device.
+230: 
+231: ---
+232: 
+233: ## WiFi/Mobile Data Disconnects
 
 **Symptoms:** WiFi or mobile data permanently stops working on the host device during container start or stop processes. You may be unable to turn them back on without a device reboot.
 
