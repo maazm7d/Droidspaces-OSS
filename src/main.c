@@ -228,6 +228,11 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
+  /* Prevent foreground mode in non-interactive environments (pipes, CI/CD) */
+  if (cfg.foreground && (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))) {
+    ds_die("Foreground mode (-f/--foreground) requires a fully interactive "
+           "terminal (STDIN and STDOUT must be TTYs).");
+  }
 
   if (optind >= argc) {
     ds_error(C_BOLD "Missing command" C_RESET
