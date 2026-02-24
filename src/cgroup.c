@@ -164,8 +164,6 @@ static int is_cgroup_ns_active(void) {
         *nl = '\0';
 
       if (strcmp(col2 + 1, "/") != 0) {
-        ds_log("Cgroup NS check failed for line: %s (path: '%s')", line,
-               col2 + 1);
         is_ns = 0;
         break;
       }
@@ -195,6 +193,7 @@ int setup_cgroups(void) {
   struct host_cgroup hosts[32];
   int n = get_host_cgroups(hosts, 32);
 
+  int in_ns = is_cgroup_ns_active();
   int is_pure_v2 = 0;
 
   for (int i = 0; i < n; i++) {
@@ -221,8 +220,6 @@ int setup_cgroups(void) {
     if (suffix[0] != '\0') {
       mkdir(container_mp, 0755);
     }
-
-    int in_ns = is_cgroup_ns_active();
 
     if (in_ns) {
       /* MODERN PATH: Use Cgroup Namespace support.
