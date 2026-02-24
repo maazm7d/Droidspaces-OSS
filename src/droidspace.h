@@ -205,6 +205,7 @@ int run_command_quiet(char *const argv[]);
 int ds_send_fd(int sock, int fd);
 int ds_recv_fd(int sock);
 void print_ds_banner(void);
+int is_systemd_rootfs(const char *path);
 void check_kernel_recommendation(void);
 
 /* ---------------------------------------------------------------------------
@@ -220,7 +221,7 @@ int android_fill_dns_from_props(char *dns1, char *dns2, size_t size);
 void android_configure_iptables(void);
 void android_setup_paranoid_network_groups(void);
 int android_setup_storage(const char *rootfs_path);
-int android_seccomp_setup(void);
+int android_seccomp_setup(int is_systemd);
 
 /* ---------------------------------------------------------------------------
  * mount.c

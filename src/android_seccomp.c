@@ -20,42 +20,31 @@
  * android_seccomp_setup() - Apply Seccomp filter for Android compatibility.
  *
  * This function applies a Seccomp BPF filter to intercept and modify the
- * behavior of specific system calls that are known to cause issues on Android:
+ * behavior of specific system calls that are known to cause issues on Android.
  *
- * 1. Keyring Management (keyctl, add_key, request_key):
- *    Returns ENOSYS to prevent systemd from creating new session keyrings.
- *    This is necessary on Android hosts with File-Based Encryption (FBE) to
- *    ensure that the container process chain retains the necessary encryption
- *    keys for filesystem access.
+ * CRITICAL (Kernel 4.14 Deadlock):
+ * On legacy kernels (below 5.0), some isolation features can trigger a
+ * kernel deadlock in grab_super() when systemd services try to mount /proc.
  *
- * 2. Sandboxing / Isolation (unshare, clone):
- *    Returns EPERM when specific isolation flags (e.g., CLONE_NEWNS) are
- *    requested. On some Android kernels (notably 4.14), these isolation
- * features can trigger VFS deadlocks in the kernel during mount operations. By
- * returning EPERM, child processes (like systemd units) gracefully fall back to
- * the main container namespace.
+ * New Logic:
+ * 1. Modern kernels (5.0+) are safe -> No filtering.
+ * 2. Non-systemd containers (Alpine, etc.) are safe -> No filtering.
+ * 3. Systemd containers on legacy kernels -> Apply the shield to block
+ *    namespace creation (falling back to host namespaces to avoid deadlock).
  */
-int android_seccomp_setup(void) {
+int android_seccomp_setup(int is_systemd) {
   int major = 0, minor = 0;
   if (get_kernel_version(&major, &minor) < 0)
     return -1;
 
-  /* Modern kernels (5.0+) are stable enough for systemd sandboxing and
-   * do not suffer from the keyring/FBE deadlock bugs observed on 4.14.
-   * We skip filtering here to ensure full compatibility with advanced
-   * container features like Docker. */
   if (major >= 5)
     return 0;
 
-  ds_log(
-      "Legacy kernel detected (%d.%d): Applying compatibility Seccomp shield.",
-      major, minor);
+  ds_log("Legacy kernel (%d.%d) detected: Applying Android compatibility "
+         "shield...",
+         major, minor);
 
-  /* Namespace flags to filter on legacy kernels:
-   * CLONE_NEWNS(0x20000), CLONE_NEWUTS(0x04000000), CLONE_NEWIPC(0x08000000),
-   * CLONE_NEWUSER(0x10000000), CLONE_NEWPID(0x20000000),
-   * CLONE_NEWNET(0x40000000), CLONE_NEWCGROUP(0x02000000) -> Mask: 0x7E020000
-   */
+  /* Namespace flags to filter on legacy kernels (only for systemd) */
   const uint32_t ns_mask = 0x7E020000;
 
   struct sock_filter filter[] = {
@@ -88,7 +77,13 @@ int android_seccomp_setup(void) {
       BPF_STMT(BPF_RET | BPF_K,
                SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)),
 
-      /* [4] Filter Sandboxing/Namespaces (EPERM if mask matches) */
+      /* [4] Conditional Jump for Namespace Filtering (Systemd only)
+       * If not systemd, jump over the next 5 instructions (the namespace
+       * filter).
+       */
+      BPF_JUMP(BPF_JMP | BPF_JA, (uint16_t)(is_systemd ? 0 : 5), 0, 0),
+
+      /* [5] Filter Sandboxing/Namespaces (EPERM if mask matches) */
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unshare, 1, 0),
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 3),
 

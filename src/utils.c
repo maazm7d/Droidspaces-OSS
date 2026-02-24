@@ -578,3 +578,45 @@ void print_ds_banner(void) {
                        " v" DS_VERSION C_CYAN " ! —" C_RESET "\r\n\r\n");
   fflush(stdout);
 }
+
+int is_systemd_rootfs(const char *path) {
+  if (!path)
+    return 0;
+
+  char buf[PATH_MAX];
+  struct stat st;
+  size_t path_len = strlen(path);
+
+  /* Precise check for systemd binary locations */
+  const char *check_paths[] = {"/lib/systemd/systemd",
+                               "/usr/lib/systemd/systemd", "/bin/systemd",
+                               "/usr/bin/systemd"};
+
+  for (size_t i = 0; i < sizeof(check_paths) / sizeof(check_paths[0]); i++) {
+    size_t check_len = strlen(check_paths[i]);
+    if (path_len + check_len >= sizeof(buf))
+      continue;
+
+    memcpy(buf, path, path_len);
+    memcpy(buf + path_len, check_paths[i], check_len + 1);
+    if (stat(buf, &st) == 0 && S_ISREG(st.st_mode)) {
+      return 1;
+    }
+  }
+
+  /* Fallback: Check if /sbin/init is a symlink to systemd */
+  if (path_len + 11 < sizeof(buf)) {
+    memcpy(buf, path, path_len);
+    memcpy(buf + path_len, "/sbin/init", 11);
+    char link_target[PATH_MAX];
+    ssize_t len = readlink(buf, link_target, sizeof(link_target) - 1);
+    if (len != -1) {
+      link_target[len] = '\0';
+      if (strstr(link_target, "systemd")) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}

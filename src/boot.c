@@ -21,9 +21,11 @@ int internal_boot(struct ds_config *cfg) {
   }
 
   /* Apply Android compatibility Seccomp filter to child processes.
-   * This neutralizes broken sandboxing/keyring logic in systemd. */
+   * On legacy kernels, this neutralizes broken sandboxing logic in systemd
+   * that triggers VFS deadlocks in grab_super(). */
   if (is_android()) {
-    android_seccomp_setup();
+    int is_systemd = is_systemd_rootfs(cfg->rootfs_path);
+    android_seccomp_setup(is_systemd);
   }
 
   /* 2.5 Setup volatile overlay INSIDE the container's mount namespace.

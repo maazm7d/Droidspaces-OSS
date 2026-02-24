@@ -877,44 +877,44 @@ Each name is parsed with `strtok()`, a subcfg is created, and `stop_rootfs()` is
 
 ## 11. Android Compatibility & Seccomp Shielding
 
-Droidspaces v3.3.0 introduces a sophisticated **Adaptive Seccomp Shield** implemented in `src/android_seccomp.c`. This is the final piece of the architecture that enables stable systemd operation on Android host kernels.
+Droidspaces v4.3.2 implements a refined **Adaptive Seccomp Shield** in `src/android_seccomp.c`. This logic provides deep compatibility for legacy Android kernels while maximizing features on newer systems.
 
 ### 11.1 The Problems Being Solved
 
 #### A. The Keyring / FBE Conflict (ENOKEY)
 On Android hosts with File-Based Encryption (FBE), the filesystem encryption keys are stored in the kernel's **session keyring**. When `systemd` (specifically `journald` or `logind`) attempts to create a new session keyring using `keyctl(KEYCTL_JOIN_SESSION_KEYRING)`, the process effectively loses access to the host-provided keys.
 - **Symptoms**: The container suddenly reports "Required key not available" (ENOKEY) when accessing encrypted files, leading to a system crash.
-- **Fix**: The Seccomp filter intercepts `keyctl`, `add_key`, and `request_key` and returns `ENOSYS`. This tricks systemd into falling back to the existing session keyring, preserving FBE access.
+- **Fix**: The Seccomp filter intercepts `keyctl`, `add_key`, and `request_key` and returns `ENOSYS`. This tricks systemd into falling back to the existing session keyring.
 
 #### B. The Namespace Deadlock (grab_super)
-On legacy Android kernels (notably 4.19, 4.14, 4.9, and below), systemd's use of mount namespaces for service sandboxing (`PrivateTmp=yes`, `ProtectSystem=yes`) triggers a race condition in the kernel's `grab_super` path.
-- **Symptoms**: The entire system hangs (Deadlock) or panics during the boot of services like `systemd-resolved` or `systemd-networkd`.
-- **Fix**: On detected legacy kernels, the filter monitors `unshare` and `clone`. If flags like `CLONE_NEWNS` or `CLONE_NEWPID` are requested, it returns `EPERM`. Systemd gracefully fallbacks to running the service in the main container namespace, bypassing the deadlock.
+On legacy Android kernels (notably 4.14, 4.9, and below), systemd's use of mount namespaces for service sandboxing (`PrivateTmp=yes`, `ProtectSystem=yes`) triggers a race condition in the kernel's `grab_super` path.
+- **Symptoms**: The Entire system hangs in a "D" state deadlock during the boot of services like `systemd-resolved` or `systemd-networkd`.
+- **Fix**: The filter monitors `unshare` and `clone`. If flags such as `CLONE_NEWNS` or `CLONE_NEWPID` are requested, it returns `EPERM`. Systemd gracefully fallbacks to running the service in the main container namespace, bypassing the deadlock.
 
-### 11.2 Adaptive Shield Implementation
+### 11.2 Conditional Shield Architecture (v4.3.2)
 
-The shield uses a **linear BPF structure** for maximum performance and is strictly adaptive based on the host kernel version (detected via `get_kernel_version()`):
+The shield is applied surgically based on both the host kernel and the guest OS type to maximize freedom for non-systemd containers:
 
-1. **Detection**: At boot, Droidspaces probes `uname()`.
-2. **Legacy Logic (Kernel < 5.0)**:
-   - The filter is fully applied.
-   - Both Keyring (ENOSYS) and Namespace (EPERM) protections are active.
-   - This ensures the device remains stable and FBE-aware.
-3. **Modern Logic (Kernel 5.0+)**:
-   - The entire filter is **skipped**.
-   - Modern Android kernels (5.10, 5.15, 6.1+) have resolved these races and handle keyrings more robustly.
-   - **Crucial Benefit**: This allows advanced container tools like **Docker** and **nested containers** to function with 100% native performance and full feature support.
+1. **Host Discovery**: At boot, Droidspaces probes `uname()` and registers the kernel version.
+2. **Guest Discovery**: `internal_boot()` calls `is_systemd_rootfs()` to check for `systemd` binary locations or symlinks in the rootfs.
+3. **Application Matrix**:
+    - **Kernel 5.0+**: The filter is **skipped entirely**. Modern kernels have resolved the `grab_super` races and handle keyrings robustly.
+    - **Legacy Kernel (< 5.0)**:
+        - **Keyring/FBE Fix**: **Always Applied**. Syscalls like `keyctl` return `ENOSYS` to ensure container stability on Android hosts.
+        - **Namespace/Deadlock Fix**: **Conditional**. Only applied if `systemd` is detected. Non-systemd containers (Alpine) are granted full namespace freedom (Docker/LXC).
 
-### 11.3 Filter Logic Flow (BPF)
+### 11.3 Filter Logic Implementation (BPF)
 
-The filter follows this internal flow:
-1. **Validate Arch**: Ensures the syscall matches the current CPU architecture (AArch64, x86_64, etc).
-2. **Keyring Check**: If syscall is `keyctl`, `add_key`, or `request_key`, return `ENOSYS`.
+The filter uses the following logic flow in `src/android_seccomp.c`:
+1. **Keyring Check**: If syscall is `keyctl`, `add_key`, or `request_key`, return `RET_ERRNO(ENOSYS)`. This part is always active on legacy kernels.
+2. **Conditional Jump**: If the container is NOT using systemd, the next section is skipped.
 3. **Namespace Check**: 
    - If syscall is `unshare` or `clone`.
    - Load arguments and check against `ns_mask` (`0x7E020000`).
-   - If match, return `EPERM`.
+   - If a namespace flag match is found, return `RET_ERRNO(EPERM)`.
 4. **Default**: `SECCOMP_RET_ALLOW`.
+
+This "Shield" acts as a compatibility layer that makes legacy hardware feel like modern hardware to the container's init system.
 
 ---
 
