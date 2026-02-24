@@ -303,6 +303,8 @@ int main(int argc, char **argv) {
     if (check_requirements() < 0)
       return 1;
 
+    print_ds_banner();
+    check_kernel_recommendation();
     return start_rootfs(&cfg);
   }
 
@@ -332,6 +334,9 @@ int main(int argc, char **argv) {
       ds_die("--rootfs or --rootfs-img is required for restart");
     if (check_requirements() < 0)
       return 1;
+
+    print_ds_banner();
+    check_kernel_recommendation();
     return restart_rootfs(&cfg);
   }
 

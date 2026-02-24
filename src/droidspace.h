@@ -59,6 +59,8 @@
 #define DS_VERSION "4.3.1"
 #define DS_MIN_KERNEL_MAJOR 3
 #define DS_MIN_KERNEL_MINOR 18
+#define DS_RECOMMENDED_KERNEL_MAJOR 4
+#define DS_RECOMMENDED_KERNEL_MINOR 14
 #define DS_AUTHOR "ravindu644, Antigravity"
 #define DS_REPO "https://github.com/ravindu644/Droidspaces-OSS"
 #define DS_MAX_TTYS 6
@@ -202,6 +204,8 @@ int run_command(char *const argv[]);
 int run_command_quiet(char *const argv[]);
 int ds_send_fd(int sock, int fd);
 int ds_recv_fd(int sock);
+void print_ds_banner(void);
+void check_kernel_recommendation(void);
 
 /* ---------------------------------------------------------------------------
  * android.c

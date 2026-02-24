@@ -555,3 +555,23 @@ int get_kernel_version(int *major, int *minor) {
 
   return 0;
 }
+
+void check_kernel_recommendation(void) {
+  int major = 0, minor = 0;
+  if (get_kernel_version(&major, &minor) < 0)
+    return;
+
+  if (major < DS_RECOMMENDED_KERNEL_MAJOR ||
+      (major == DS_RECOMMENDED_KERNEL_MAJOR &&
+       minor < DS_RECOMMENDED_KERNEL_MINOR)) {
+    ds_warn(C_BOLD C_YELLOW "Your kernel (%d.%d) is below recommended %d.%d - "
+                            "some functions might be unstable." C_RESET,
+            major, minor, DS_RECOMMENDED_KERNEL_MAJOR,
+            DS_RECOMMENDED_KERNEL_MINOR);
+  }
+}
+
+void print_ds_banner(void) {
+  printf(C_CYAN C_BOLD "--- " C_WHITE DS_PROJECT_NAME " v" DS_VERSION C_CYAN
+                       " ---" C_RESET "\n");
+}
