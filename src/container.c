@@ -18,24 +18,29 @@ static void restart_marker_path(const char *name, char *buf, size_t size) {
 }
 
 static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
-                                        int skip_unmount) {
-  /* Flush filesystem buffers */
-  sync();
+                                        int skip_unmount, int force_cleanup) {
+  /* Flush filesystem buffers (skip if force cleanup — sync can hang on
+   * zombie-held fs) */
+  if (!force_cleanup)
+    sync();
 
   if (is_android() && !skip_unmount && count_running_containers(NULL, 0) == 0)
     android_optimizations(0);
 
-  /* 1. Cleanup firmware path */
-  if (cfg->rootfs_path[0]) {
-    firmware_path_remove_rootfs(cfg->rootfs_path);
-  } else if (pid > 0) {
-    char rootfs[PATH_MAX];
-    char root_link[PATH_MAX];
-    snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
-    ssize_t rlen = readlink(root_link, rootfs, sizeof(rootfs) - 1);
-    if (rlen > 0) {
-      rootfs[rlen] = '\0'; /* readlink does NOT null-terminate */
-      firmware_path_remove_rootfs(rootfs);
+  /* 1. Cleanup firmware path (skip when force — accessing zombie rootfs hangs)
+   */
+  if (!force_cleanup) {
+    if (cfg->rootfs_path[0]) {
+      firmware_path_remove_rootfs(cfg->rootfs_path);
+    } else if (pid > 0) {
+      char rootfs[PATH_MAX];
+      char root_link[PATH_MAX];
+      snprintf(root_link, sizeof(root_link), "/proc/%d/root", pid);
+      ssize_t rlen = readlink(root_link, rootfs, sizeof(rootfs) - 1);
+      if (rlen > 0) {
+        rootfs[rlen] = '\0'; /* readlink does NOT null-terminate */
+        firmware_path_remove_rootfs(rootfs);
+      }
     }
   }
 
@@ -45,16 +50,35 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
                             sizeof(global_pidfile));
 
   /* 3. Handle Volatile Overlay Cleanup (upper/work/merged)
-   * This MUST happen before unmounting the lower rootfs image. */
+   * This MUST happen before unmounting the lower rootfs image.
+   * When force_cleanup, use detach+force unmount to avoid hangs. */
   if (cfg->volatile_mode) {
-    cleanup_volatile_overlay(cfg);
+    if (force_cleanup) {
+      /* Force path: skip sync, just detach everything */
+      char merged[PATH_MAX + 32];
+      snprintf(merged, sizeof(merged), "%s/merged", cfg->volatile_dir);
+      umount2(merged, MNT_DETACH | MNT_FORCE);
+      umount2(cfg->volatile_dir, MNT_DETACH | MNT_FORCE);
+      /* Best-effort directory removal */
+      remove_recursive(cfg->volatile_dir);
+      cfg->volatile_dir[0] = '\0';
+    } else {
+      cleanup_volatile_overlay(cfg);
+    }
   }
 
   /* 4. Handle rootfs image unmount */
   char mount_point[PATH_MAX];
   if (read_mount_path(cfg->pidfile, mount_point, sizeof(mount_point)) > 0) {
-    if (!skip_unmount)
-      unmount_rootfs_img(mount_point, cfg->foreground);
+    if (!skip_unmount) {
+      if (force_cleanup) {
+        /* Force path: detach+force unmount, no sync, no retry loops */
+        umount2(mount_point, MNT_DETACH | MNT_FORCE);
+        rmdir(mount_point); /* best-effort */
+      } else {
+        unmount_rootfs_img(mount_point, cfg->foreground);
+      }
+    }
   }
 
   /* 5. Remove tracking info and unlink PID files.
@@ -407,7 +431,7 @@ int start_rootfs(struct ds_config *cfg) {
       ds_log("Restart marker found, skipping monitor cleanup");
     } else {
       /* Normal exit or crash — full cleanup */
-      cleanup_container_resources(cfg, init_pid, 0);
+      cleanup_container_resources(cfg, init_pid, 0, 0);
     }
 
     exit(WEXITSTATUS(status));
@@ -557,6 +581,7 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   }
 
   /* 3. Force kill if still running */
+  int unkillable = 0;
   if (!stopped) {
     ds_warn("Graceful stop timed out, sending SIGKILL...");
     kill(pid, SIGKILL);
@@ -576,19 +601,23 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
     }
 
     if (!killed) {
+      unkillable = 1;
       ds_error("Container PID %d is in an unkillable state!", pid);
       ds_warn("This often happens on old Android kernels due to zombie "
               "processes.\nPlease restart your device to clear it.");
-      ds_warn("Proceeding with best-effort host cleanup...");
+      ds_warn("Proceeding with best-effort host cleanup (no sync)...");
     }
   }
 
-  /* 4. Firmware cleanup if we captured rootfs earlier */
-  if (rootfs[0])
+  /* 4. Firmware cleanup if we captured rootfs earlier.
+   * Skip when unkillable — accessing zombie-held rootfs can hang. */
+  if (rootfs[0] && !unkillable)
     firmware_path_remove_rootfs(rootfs);
 
-  /* 5. Complete resource cleanup */
-  cleanup_container_resources(cfg, 0, skip_unmount);
+  /* 5. Complete resource cleanup.
+   * Pass unkillable flag so cleanup skips sync() and uses force/lazy
+   * unmounts to avoid hanging on busy mounts held by zombie processes. */
+  cleanup_container_resources(cfg, 0, skip_unmount, unkillable);
 
   ds_log("Container '%s' stopped.", cfg->container_name);
   return 0;
