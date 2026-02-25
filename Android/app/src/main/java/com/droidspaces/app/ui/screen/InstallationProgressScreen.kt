@@ -21,6 +21,7 @@ import com.droidspaces.app.ui.component.TerminalConsole
 import com.droidspaces.app.util.ContainerInfo
 import com.droidspaces.app.util.ContainerInstaller
 import com.droidspaces.app.util.ContainerLogger
+import com.droidspaces.app.util.FilePickerUtils
 import com.droidspaces.app.util.ViewModelLogger
 import kotlinx.coroutines.launch
 
@@ -63,7 +64,8 @@ fun InstallationProgressScreen(
             logger.i("Starting container installation...")
             logger.i("Container: ${config.name}")
             logger.i("Hostname: ${config.hostname}")
-            logger.i("Tarball: ${tarballUri.toString()}")
+            val tarballName = FilePickerUtils.getFileName(context, tarballUri) ?: tarballUri.toString()
+            logger.i("Tarball: $tarballName")
 
             val result = ContainerInstaller.installContainer(
                 context = context,
