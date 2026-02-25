@@ -195,10 +195,28 @@ This checks for:
 
 | Version | Support | Notes |
 |---------|---------|-------|
-| 3.18 - 4.4 | Legacy | **Minimum floor.** Basic namespace support. Modern distros (Ubuntu/Debian) are unstable; Alpine is recommended. |
-| 4.9 - 4.19 | Stable | **Hardened.** Full support with adaptive Seccomp shield and mount retry logic. |
+| 3.18 - 4.4 | Legacy | **Minimum floor.** Basic namespace support. Modern distros are unstable; Alpine is recommended. Nested containers are technically possible but highly unstable. |
+| 4.9 - 4.19 | Stable | **Hardened.** Full support with adaptive Seccomp shield. Nested containers supported for non-systemd containers (Alpine), but may hit host kernel limitations. |
 | 5.4 - 5.10 | Recommended | **Mainline.** Full feature support, including nested containers and modern Cgroup v2. |
 | 5.15+ | Ideal | **Premium.** All features, best performance, and widest compatibility. |
+
+> [!NOTE]
+>
+> While Alpine has namespace freedom on legacy kernels, nested tools like Docker may still fail if they require modern host kernel features (like BPF cgroup hooks) that are missing or incompatible on kernels < 5.0.
+>
+
+---
+
+## Nested Containers on Legacy Kernels
+
+On legacy kernels (especially Android 4.14 and below), Droidspaces allows nested containerization (e.g., Docker inside Alpine) by selectively disabling the Seccomp shield for non-systemd containers. However, you may still encounter host kernel limitations:
+
+- **BPF Conflicts**: Modern Docker/runc versions use `BPF_CGROUP_DEVICE` for device management. Legacy kernels often lack the required BPF attach types, leading to `Invalid argument` errors during `docker run`.
+- **Cgroup v1 Limits**: Service sandboxing and resource limiting in nested environments may behave unexpectedly on older cgroup v1 implementations.
+- **Performance**: Volatile mode overhead is significantly higher when nesting multiple layers of OverlayFS.
+
+**Workaround for Docker on 4.14:**
+If you see `bpf_prog_query` errors, try using a legacy `runc` binary or configuring Docker to use the older `cgroupfs` driver and `vfs` storage driver if necessary.
 
 ---
 

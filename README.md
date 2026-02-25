@@ -103,7 +103,7 @@ The entire runtime is a **single static binary** under 150KB, compiled against m
 | **Rootfs Image Support** | Boot containers from ext4 `.img` files with automatic loop mounting, filesystem checks, and SELinux context hardening if needed. **The Android app also supports creating portable containers in rootfs.img mode.** |
 | **Auto-Recovery** | Automatic stale PID file cleanup, container scanning for orphaned processes, and robust mount cleanup on exit. |
 | **Cgroup Isolation** | Per-container cgroup hierarchies (`/sys/fs/cgroup/droidspaces/<name>`) with full systemd compatibility. Supports both cgroup v1 and v2. |
-| **Adaptive Seccomp Shield** | Kernel-aware BPF filter that resolves FBE keyring conflicts and prevents VFS deadlocks on legacy Android kernels (< 5.0). Automatically disabled on modern kernels for full feature support. |
+| **Adaptive Seccomp Shield** | Kernel-aware BPF filter that resolves FBE keyring conflicts and prevents VFS deadlocks for **systemd** containers on legacy Android kernels (< 5.0). Automatically grants full namespace freedom to non-systemd containers (Alpine/OpenRC) for improved feature support. |
 
 ---
 
@@ -138,7 +138,7 @@ The entire runtime is a **single static binary** under 150KB, compiled against m
 | Binary Size | 10MB+ (plus dependencies) | Under 150KB per architecture. |
 | Android Optimizations | None. Not designed for Android. | Yes. SELinux handling, FBE keyring management, storage integration, networking fixes |
 | Termux Required | Often. Used as the execution environment. | Never. Runs directly as a native binary. |
-| Nested Containers | Complex setup required. | Works natively on kernel 5.x +. |
+| Nested Containers | Complex setup required. | Supported natively on 5.x+. On legacy kernels (< 5.0), supported in non-systemd containers (Alpine) with kernel-level caveats. |
 | Init System | LXC = yes, Docker = no. | Always. systemd/OpenRC as PID 1 by default. |
 
 ---
