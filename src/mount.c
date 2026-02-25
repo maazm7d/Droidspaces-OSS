@@ -548,7 +548,9 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
   }
 
   /* Mount via loop device with retries (Critical for Kernel 4.14 stability) */
-  char *opts = readonly ? "loop,ro" : "loop";
+  char *opts = readonly ? "loop,ro,noatime,nodiratime,init_itable=0"
+                        : "loop,nodelalloc,noatime,nodiratime,errors=remount-"
+                          "ro,init_itable=0";
   char *mount_argv[] = {"mount",     "-o", opts, (char *)(uintptr_t)img_path,
                         mount_point, NULL};
 

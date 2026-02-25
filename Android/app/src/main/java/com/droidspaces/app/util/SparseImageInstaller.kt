@@ -46,7 +46,7 @@ object SparseImageInstaller {
 
             // 2. Format as ext4
             logger.i("[SPARSE] Formatting sparse image as ext4...")
-            val mkfsCmd = "mkfs.ext4 -F -L \"droidspaces-rootfs\" \"$imgPath\" || mke2fs -t ext4 -F -L \"droidspaces-rootfs\" \"$imgPath\""
+            val mkfsCmd = "mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\" || mke2fs -t ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\""
             runRootCommand(mkfsCmd, logger) ?: throw Exception("Failed to format sparse image as ext4")
 
             // 2b. Reclaim reserved blocks (tune2fs -m 0)
@@ -78,7 +78,7 @@ object SparseImageInstaller {
 
             // 4. Mount Image (Minimal options for Max compatibility)
             logger.i("[SPARSE] Mounting sparse image (Minimal loop,rw)...")
-            val mountOptions = "loop,rw"
+            val mountOptions = "loop,rw,nodelalloc,noatime,nodiratime,init_itable=0"
             val mountCmd = "${Constants.BUSYBOX_BINARY_PATH} mount -t ext4 -o $mountOptions \"$imgPath\" \"$mountPoint\" || " +
                           "mount -t ext4 -o $mountOptions \"$imgPath\" \"$mountPoint\""
             
