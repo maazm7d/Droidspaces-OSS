@@ -1,10 +1,14 @@
 package com.droidspaces.app.util
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 /**
  * Executes container operations (start/stop/restart) with TRUE real-time output streaming.
@@ -19,6 +23,9 @@ object ContainerOperationExecutor {
     // Pre-compiled error pattern for efficient matching
     private val errorPattern = Regex("""(?i)(error|failed|fail)""")
 
+    // Shared main thread Handler for guaranteed-ordered final log delivery
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     /**
      * Execute a container command with real-time output streaming.
      *
@@ -29,12 +36,22 @@ object ContainerOperationExecutor {
      * We call logger.logImmediate() synchronously inside onAddElement instead of spinning up
      * MainScope().launch coroutines, which were detached, untracked, and caused the terminal
      * to cut off before all lines were flushed to the UI.
+     *
+     * Final log lines ("Command executed", operationCompletedMessage) are posted via
+     * Handler.post() — which enqueues them AFTER any already-pending onAddElement callbacks
+     * in the main thread's message queue. This guarantees they always appear at the bottom,
+     * even if libsu's reader thread posted some onAddElement calls just before exec() returned.
+     *
+     * @param operationCompletedMessage Optional message to log after success.
+     *        Logged in guaranteed order after all binary output, before the function returns.
+     *        Pass null to skip (e.g. for internal checks).
      */
     suspend fun executeCommand(
         command: String,
         operation: String, // "start", "stop", "restart", "check"
         logger: ContainerLogger,
-        skipHeader: Boolean = false
+        skipHeader: Boolean = false,
+        operationCompletedMessage: String? = null
     ) = withContext(Dispatchers.IO) {
         try {
             if (!skipHeader) {
@@ -66,20 +83,31 @@ object ContainerOperationExecutor {
             }
 
             // exec() blocks on IO until the process exits.
-            // All output has already been delivered synchronously via onAddElement by this point.
             val result = Shell.cmd("$command 2>&1").to(callbackList).exec()
 
-            // No delay needed — onAddElement is synchronous, all lines are already in the UI.
-
-            // Log result status
-            withContext(Dispatchers.Main.immediate) {
-                if (!lastLineWasEmpty.get()) {
-                    logger.logImmediate(Log.INFO, "")
-                }
-                if (result.isSuccess) {
-                    logger.logImmediate(Log.INFO, "Command executed (exit code: ${result.code})")
-                } else {
-                    logger.logImmediate(Log.ERROR, "Command failed (exit code: ${result.code})")
+            // After exec() returns, libsu may still have onAddElement callbacks pending
+            // in the main thread's Handler queue (posted by libsu's internal reader thread
+            // just before the process exited). Using withContext(Main.immediate) here would
+            // race with those pending callbacks.
+            //
+            // Instead, we post via Handler.post() which enqueues our block AFTER everything
+            // already in the main thread's message queue — including any pending onAddElement
+            // callbacks. This guarantees our final lines always appear at the very bottom.
+            suspendCancellableCoroutine<Unit> { continuation ->
+                mainHandler.post {
+                    if (!lastLineWasEmpty.get()) {
+                        logger.logImmediate(Log.INFO, "")
+                    }
+                    if (result.isSuccess) {
+                        logger.logImmediate(Log.INFO, "Command executed (exit code: ${result.code})")
+                        if (operationCompletedMessage != null) {
+                            logger.logImmediate(Log.INFO, "")
+                            logger.logImmediate(Log.INFO, operationCompletedMessage)
+                        }
+                    } else {
+                        logger.logImmediate(Log.ERROR, "Command failed (exit code: ${result.code})")
+                    }
+                    continuation.resume(Unit)
                 }
             }
 

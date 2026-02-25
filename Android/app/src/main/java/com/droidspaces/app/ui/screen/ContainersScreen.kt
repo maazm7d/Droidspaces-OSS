@@ -241,18 +241,24 @@ fun ContainersScreen(
                 }
             }
 
-            // Execute command using logger callback pattern (same as installation)
-            val success = ContainerOperationExecutor.executeCommand(command, operation, logger)
+            // Execute command using logger callback pattern (same as installation).
+            // Pass operationCompletedMessage so the success line is logged inside executeCommand
+            // in guaranteed order on Main.immediate — before this coroutine resumes.
+            // This eliminates the race where logger.i() calls posted from here could
+            // interleave with the exit-code line logged inside executeCommand.
+            val success = ContainerOperationExecutor.executeCommand(
+                command = command,
+                operation = operation,
+                logger = logger,
+                operationCompletedMessage = context.getString(R.string.operation_completed_success)
+            )
 
-            // If the command execution itself succeeded, consider the operation successful
-            // The status check is just for additional verification but shouldn't cause failure
             if (!success) {
                 lastErrorContainer = container.name
                 logger.e("")
                 logger.e(context.getString(R.string.operation_failed))
 
                 // Operation failed - console stays open, user must close manually
-                // Don't set showLogViewerFor = null
 
                 // Show snackbar
                 scope.launch {
@@ -266,31 +272,9 @@ fun ContainersScreen(
                 containerViewModel.refresh()
                 SystemInfoManager.refreshSELinuxStatus()
             } else {
-                // Command execution succeeded - check if we need to add status verification note
-                val operationSuccess = if (operation == "start" || operation == "restart") {
-                    ContainerOperationExecutor.checkCommandSuccess(
-                        ContainerCommandBuilder.buildStatusCommand(container)
-                    )
-                } else {
-                    // For stop, check if container is no longer running
-                    !ContainerOperationExecutor.checkCommandSuccess(
-                        ContainerCommandBuilder.buildStatusCommand(container)
-                    )
-                }
-
-                if (!operationSuccess) {
-                    // Command succeeded but status check failed - add a note but don't treat as failure
-                    logger.w("")
-                    logger.w("Note: Command executed successfully, but container status verification failed")
-                    logger.w("This may be normal during startup/shutdown - check container status manually")
-                }
-
-                logger.i("")
-                logger.i(context.getString(R.string.operation_completed_success))
                 lastErrorContainer = null
 
                 // Operation succeeded - console stays open, user must close manually
-                // Don't set showLogViewerFor = null
 
                 // Refresh container status and SELinux immediately after successful operation (KernelSU pattern)
                 containerViewModel.refresh()
@@ -302,7 +286,6 @@ fun ContainersScreen(
             lastErrorContainer = container.name
 
             // Operation failed with exception - console stays open, user must close manually
-            // Don't set showLogViewerFor = null
 
             // Show snackbar
             scope.launch {
@@ -522,4 +505,3 @@ private fun UninstallConfirmationDialog(
         shape = RoundedCornerShape(28.dp)
     )
 }
-
