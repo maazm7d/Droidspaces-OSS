@@ -2,6 +2,7 @@ package com.droidspaces.app.ui.screen
 
 import android.net.Uri
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
@@ -163,6 +164,7 @@ fun InstallationProgressScreen(
                                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     val clip = android.content.ClipData.newPlainText("Installation Logs", logText)
                                     clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, com.droidspaces.app.R.string.logs_copied, Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier
                                     .weight(1f)

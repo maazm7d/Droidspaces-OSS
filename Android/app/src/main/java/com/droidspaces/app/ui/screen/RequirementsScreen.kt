@@ -2,6 +2,7 @@ package com.droidspaces.app.ui.screen
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -325,6 +326,7 @@ private fun CodeBox(
                             code
                         )
                         clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, R.string.kernel_requirements_copied, Toast.LENGTH_SHORT).show()
                         // Show snackbar feedback
                         scope.showSuccess(snackbarHostState, context.getString(R.string.kernel_requirements_copied))
                     },

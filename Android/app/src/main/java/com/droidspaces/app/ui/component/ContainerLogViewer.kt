@@ -21,6 +21,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.widget.Toast
 import com.droidspaces.app.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -191,6 +192,7 @@ fun ContainerLogViewer(
                                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                                     val clip = ClipData.newPlainText(context.getString(R.string.container_logs), logText)
                                     clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(context, R.string.logs_copied, Toast.LENGTH_SHORT).show()
                                 },
                                 indication = rememberRipple(bounded = true),
                                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
