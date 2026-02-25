@@ -101,10 +101,6 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
   }
 }
 
-/* ---------------------------------------------------------------------------
- * Introspection
- * ---------------------------------------------------------------------------*/
-
 int is_valid_container_pid(pid_t pid) {
   char path[PATH_MAX];
   char buf[256];
@@ -113,13 +109,14 @@ int is_valid_container_pid(pid_t pid) {
    * This is the one authoritative marker written by droidspaces on boot.
    * We do NOT require /run/systemd/container — Alpine/runit/openrc never
    * write that file, causing scan to be blind to non-systemd distros. */
-  build_proc_root_path(pid, "/run/droidspaces", path, sizeof(path));
+  if (build_proc_root_path(pid, DS_DROIDSPACES_MARKER, path, sizeof(path)) < 0)
+    return 0;
   if (access(path, F_OK) != 0)
     return 0;
 
   /* Secondary check: cmdline must contain "init" (any init system).
    * Accepts: /sbin/init, /bin/init, /usr/bin/runit-init, /bin/openrc-init */
-  snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
+  snprintf(path, sizeof(path), DS_PROC_CMDLINE_FMT, pid);
   if (read_file(path, buf, sizeof(buf)) < 0)
     return 0;
   if (!strstr(buf, "init"))
@@ -128,6 +125,10 @@ int is_valid_container_pid(pid_t pid) {
   return 1;
 }
 
+/* ---------------------------------------------------------------------------
+ * Introspection
+ * ---------------------------------------------------------------------------*/
+
 int check_status(struct ds_config *cfg, pid_t *pid_out) {
   if (auto_resolve_pidfile(cfg) < 0) {
     ds_error("Could not resolve PID file. Use --name or --pidfile.");
@@ -135,15 +136,14 @@ int check_status(struct ds_config *cfg, pid_t *pid_out) {
   }
 
   pid_t pid = 0;
-  if (read_and_validate_pid(cfg->pidfile, &pid) < 0 ||
-      (pid > 0 && !is_valid_container_pid(pid))) {
-    ds_error("Container '%s' is not running or invalid.", cfg->container_name);
-    return -1;
+  if (is_container_running(cfg, &pid)) {
+    if (pid_out)
+      *pid_out = pid;
+    return 0;
   }
 
-  if (pid_out)
-    *pid_out = pid;
-  return 0;
+  ds_error("Container '%s' is not running or invalid.", cfg->container_name);
+  return -1;
 }
 
 /* ---------------------------------------------------------------------------
@@ -475,13 +475,13 @@ int start_rootfs(struct ds_config *cfg) {
   snprintf(pid_str, sizeof(pid_str), "%d", cfg->container_pid);
 
   /* Always save to global Pids directory (for --name lookups) */
-  if (write_file(global_pidfile, pid_str) < 0) {
+  if (write_file_atomic(global_pidfile, pid_str) < 0) {
     ds_error("Failed to write PID file: %s", global_pidfile);
   }
 
   /* Also save to user-specified --pidfile if different */
   if (cfg->pidfile[0] && strcmp(cfg->pidfile, global_pidfile) != 0) {
-    if (write_file(cfg->pidfile, pid_str) < 0) {
+    if (write_file_atomic(cfg->pidfile, pid_str) < 0) {
       ds_error("Failed to write PID file: %s", cfg->pidfile);
     }
   }
@@ -571,7 +571,7 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
    * - SIGPWR: Universal power failure signal (often used by LXC/SysVinit for
    * shutdown).
    */
-  kill(pid, SIGRTMIN + 3);
+  kill(pid, DS_SIG_STOP);
   kill(pid, SIGTERM);
   kill(pid, SIGPWR);
   ds_log("Waiting for graceful shutdown (this may take up to %d seconds)...",
@@ -580,11 +580,13 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   /* 2. Wait for exit */
   int stopped = 0;
   for (int i = 0; i < DS_STOP_TIMEOUT * 5; i++) {
-    if (kill(pid, 0) < 0 && errno == ESRCH) {
-      stopped = 1;
-      break;
+    if (kill(pid, 0) < 0) {
+      if (errno == ESRCH) {
+        stopped = 1;
+        break;
+      }
     }
-    usleep(200000); /* 200ms */
+    usleep(DS_RETRY_DELAY_US);
   }
 
   /* 3. Force kill if still running */
@@ -985,14 +987,13 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
   }
 
   pid_t pid = 0;
-
   if (trust_cfg_pid && cfg->container_pid > 0) {
-    // Trust the PID we just got from the sync pipe
+    /* Trust the PID we just got from the sync pipe.
+     * We assume it's running because parent waited for boot marker. */
     pid = cfg->container_pid;
-    // We assume it's running because parent waited for boot marker
   } else {
-    // For other calls (e.g., status command), read and validate from pidfile
-    read_and_validate_pid(cfg->pidfile, &pid);
+    /* For other calls (e.g., info command), read and validate from pidfile. */
+    is_container_running(cfg, &pid);
   }
 
   printf("\n" C_GREEN "Container:" C_RESET " %s (%s)\n", cfg->container_name,

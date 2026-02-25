@@ -69,6 +69,7 @@
 #define DS_STOP_TIMEOUT 15 /* seconds */
 #define DS_PID_SCAN_RETRIES 20
 #define DS_PID_SCAN_DELAY_US 200000 /* 200ms */
+#define DS_RETRY_DELAY_US 200000    /* 200ms */
 
 /* Workspace paths */
 #define DS_WORKSPACE_ANDROID "/data/local/Droidspaces"
@@ -87,6 +88,24 @@
 /* Default DNS servers */
 #define DS_DNS_DEFAULT_1 "1.1.1.1"
 #define DS_DNS_DEFAULT_2 "8.8.8.8"
+
+/* Common Paths & Patterns */
+#define DS_PROC_ROOT_FMT "/proc/%d/root"
+#define DS_PROC_CMDLINE_FMT "/proc/%d/cmdline"
+#define DS_PROC_STATUS_FMT "/proc/%d/status"
+#define DS_PROC_MOUNTINFO "/proc/self/mountinfo"
+#define DS_OS_RELEASE "/etc/os-release"
+#define DS_FW_PATH_FILE "/sys/module/firmware_class/parameters/path"
+#define DS_SYSTEMD_CONTAINER_MARKER "/run/systemd/container"
+#define DS_DROIDSPACES_MARKER "/run/droidspaces"
+
+/* File Extensions */
+#define DS_EXT_PID ".pid"
+#define DS_EXT_MOUNT ".mount"
+#define DS_EXT_RESTART ".restart"
+
+/* Signals */
+#define DS_SIG_STOP (SIGRTMIN + 3)
 
 /* Colors for output */
 #define C_RESET "\033[0m"
@@ -189,6 +208,7 @@ void safe_strncpy(char *dst, const char *src, size_t size);
 int is_subpath(const char *parent, const char *child);
 int write_file(const char *path, const char *content);
 int read_file(const char *path, char *buf, size_t size);
+int write_file_atomic(const char *path, const char *content);
 ssize_t write_all(int fd, const void *buf, size_t count);
 int generate_uuid(char *buf, size_t size);
 int get_kernel_version(int *major, int *minor);
@@ -296,6 +316,7 @@ int generate_container_name(const char *rootfs_path, char *name, size_t size);
 int find_available_name(const char *base_name, char *final_name, size_t size);
 int resolve_pidfile_from_name(const char *name, char *pidfile, size_t size);
 int auto_resolve_pidfile(struct ds_config *cfg);
+int is_container_running(struct ds_config *cfg, pid_t *pid_out);
 int is_container_init(pid_t pid);
 int count_running_containers(char *first_name, size_t size);
 pid_t find_container_init_pid(const char *uuid);

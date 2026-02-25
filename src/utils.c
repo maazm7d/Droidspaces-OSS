@@ -121,6 +121,20 @@ int write_file(const char *path, const char *content) {
   return (w == (ssize_t)len && close_ret == 0) ? 0 : -1;
 }
 
+int write_file_atomic(const char *path, const char *content) {
+  char tmp[PATH_MAX];
+  snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+
+  if (write_file(tmp, content) < 0)
+    return -1;
+
+  if (rename(tmp, path) < 0) {
+    unlink(tmp);
+    return -1;
+  }
+  return 0;
+}
+
 ssize_t write_all(int fd, const void *buf, size_t count) {
   const char *p = buf;
   size_t remaining = count;
@@ -249,16 +263,16 @@ int build_proc_root_path(pid_t pid, const char *suffix, char *buf,
                          size_t size) {
   int r;
   if (suffix && suffix[0])
-    r = snprintf(buf, size, "/proc/%d/root%s", pid, suffix);
+    r = snprintf(buf, size, DS_PROC_ROOT_FMT "%s", pid, suffix);
   else
-    r = snprintf(buf, size, "/proc/%d/root", pid);
+    r = snprintf(buf, size, DS_PROC_ROOT_FMT, pid);
   return (r > 0 && (size_t)r < size) ? 0 : -1;
 }
 
 int parse_os_release(const char *rootfs_path, char *id_out, char *ver_out,
                      size_t out_size) {
   char path[PATH_MAX];
-  snprintf(path, sizeof(path), "%s/etc/os-release", rootfs_path);
+  snprintf(path, sizeof(path), "%s" DS_OS_RELEASE, rootfs_path);
 
   char buf[4096];
   if (read_file(path, buf, sizeof(buf)) < 0)
@@ -323,29 +337,39 @@ int grep_file(const char *path, const char *pattern) {
  * ---------------------------------------------------------------------------*/
 
 int read_and_validate_pid(const char *pidfile, pid_t *pid_out) {
+  if (pid_out)
+    *pid_out = 0;
+
   char buf[64];
-  if (read_file(pidfile, buf, sizeof(buf)) < 0)
+  if (read_file(pidfile, buf, sizeof(buf)) < 0) {
+    /* If file is gone or empty, count as stopped without error logging */
     return -1;
+  }
 
   char *end;
   long val = strtol(buf, &end, 10);
   if (*end != '\0' || val <= 0) {
-    ds_error("Invalid PID in %s: '%s'", pidfile, buf);
+    /* Stale/invalid data in pidfile */
+    ds_error("Invalid/stale PID in %s: '%s'", pidfile, buf);
     return -1;
   }
 
-  /* check if process exists and is a valid Droidspaces container */
-  if (kill((pid_t)val, 0) < 0 && errno == ESRCH) {
-    *pid_out = 0;
-    return -1;
+  /* check if process exists. Atomic check: if kill fails with ESRCH, we KNOW
+   * it's dead without racing between exist checking and acting. */
+  if (kill((pid_t)val, 0) < 0) {
+    if (errno == ESRCH) {
+      return -1;
+    }
+    /* Permissive check: if EPERM, it exists but we can't signal it.
+     * Likely still running if it was ours. */
   }
 
   if (!is_valid_container_pid((pid_t)val)) {
-    *pid_out = 0;
     return -1;
   }
 
-  *pid_out = (pid_t)val;
+  if (pid_out)
+    *pid_out = (pid_t)val;
   return 0;
 }
 
@@ -358,12 +382,12 @@ int read_and_validate_pid(const char *pidfile, pid_t *pid_out) {
 static void pidfile_to_mountfile(const char *pidfile, char *buf, size_t size) {
   safe_strncpy(buf, pidfile, size);
   char *dot = strrchr(buf, '.');
-  if (dot && strcmp(dot, ".pid") == 0) {
+  if (dot && strcmp(dot, DS_EXT_PID) == 0) {
     /* If it ends in .pid, replace it */
-    snprintf(dot, size - (size_t)(dot - buf), ".mount");
+    snprintf(dot, size - (size_t)(dot - buf), DS_EXT_MOUNT);
   } else {
     /* Otherwise just append */
-    strncat(buf, ".mount", size - strlen(buf) - 1);
+    strncat(buf, DS_EXT_MOUNT, size - strlen(buf) - 1);
   }
 }
 
@@ -402,7 +426,7 @@ void firmware_path_add_rootfs(const char *rootfs) {
 
   /* Read current firmware path */
   char current[PATH_MAX] = {0};
-  read_file(FW_PATH_FILE, current, sizeof(current));
+  read_file(DS_FW_PATH_FILE, current, sizeof(current));
 
   /* Don't add if already present */
   if (current[0] && strstr(current, fw_path))
@@ -415,7 +439,7 @@ void firmware_path_add_rootfs(const char *rootfs) {
   else
     safe_strncpy(new_path, fw_path, sizeof(new_path));
 
-  write_file(FW_PATH_FILE, new_path);
+  write_file(DS_FW_PATH_FILE, new_path);
 }
 
 void firmware_path_remove_rootfs(const char *rootfs) {
@@ -423,7 +447,7 @@ void firmware_path_remove_rootfs(const char *rootfs) {
   snprintf(fw_path, sizeof(fw_path), "%s/lib/firmware", rootfs);
 
   char current[PATH_MAX * 2] = {0};
-  if (read_file(FW_PATH_FILE, current, sizeof(current)) < 0)
+  if (read_file(DS_FW_PATH_FILE, current, sizeof(current)) < 0)
     return;
 
   /* Remove our path from the firmware search path */
@@ -449,7 +473,7 @@ void firmware_path_remove_rootfs(const char *rootfs) {
     strncat(new_path, after, sizeof(new_path) - strlen(new_path) - 1);
   }
 
-  write_file(FW_PATH_FILE, new_path);
+  write_file(DS_FW_PATH_FILE, new_path);
 }
 
 /* ---------------------------------------------------------------------------

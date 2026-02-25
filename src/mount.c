@@ -457,7 +457,7 @@ int cleanup_volatile_overlay(struct ds_config *cfg) {
 
 done:
   /* settle time for kernel to release backing store info */
-  usleep(100000);
+  usleep(DS_RETRY_DELAY_US / 2);
   int r = remove_recursive(cfg->volatile_dir);
   cfg->volatile_dir[0] = '\0';
   return r;
@@ -537,7 +537,7 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
    * might still be cleaning up the loop device or VFS locks.
    */
   sync();
-  usleep(200000); /* 200ms */
+  usleep(DS_RETRY_DELAY_US); /* 200ms */
 
   /* Apply correct SELinux context to the image file on Android
    * to prevent silent loop mount I/O errors. */
@@ -570,7 +570,7 @@ int mount_rootfs_img(const char *img_path, char *mount_point, size_t mp_size,
     if (attempt < max_retries) {
       ds_log("Mount failed, sync and waiting 1s before retry...");
       sync();
-      sleep(1);
+      usleep(DS_RETRY_DELAY_US * 5); /* 1s total */
     }
   }
 
@@ -596,7 +596,7 @@ int unmount_rootfs_img(const char *mount_point, int silent) {
 
   /* 2. Settle loop devices */
   sync();
-  usleep(200000); /* 200ms */
+  usleep(DS_RETRY_DELAY_US); /* 200ms */
 
   /* 3. Try to remove the directory, retry if necessary */
   int retries = 3;
@@ -606,7 +606,7 @@ int unmount_rootfs_img(const char *mount_point, int silent) {
     if (is_mountpoint(mount_point)) {
       umount2(mount_point, MNT_DETACH | MNT_FORCE);
     }
-    usleep(100000);
+    usleep(DS_RETRY_DELAY_US / 2);
   }
 
   return 0;

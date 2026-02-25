@@ -186,7 +186,8 @@ int internal_boot(struct ds_config *cfg) {
   char marker[PATH_MAX];
   snprintf(marker, sizeof(marker), "run/%s", cfg->uuid);
   write_file(marker, "init");
-  write_file("run/droidspaces", DS_VERSION);
+  write_file(&DS_DROIDSPACES_MARKER[1],
+             DS_VERSION); /* skip leading / for relative write */
 
   /* 15. Android-specific storage */
   if (cfg->android_storage) {
@@ -223,7 +224,7 @@ int internal_boot(struct ds_config *cfg) {
     rmdir("/.old_root");
 
   /* 21. Set container identity for systemd/openrc */
-  write_file("/run/systemd/container", "droidspaces");
+  write_file(DS_SYSTEMD_CONTAINER_MARKER, "droidspaces");
 
   /* 22. Clear environment and set container defaults */
   ds_env_boot_setup(cfg);

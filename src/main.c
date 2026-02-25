@@ -346,7 +346,7 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(cmd, "status") == 0) {
-    if (check_status(&cfg, NULL) == 0) {
+    if (is_container_running(&cfg, NULL)) {
       printf("Container '%s' is " C_GREEN "Running" C_RESET "\n",
              cfg.container_name);
       return 0;
@@ -361,22 +361,13 @@ int main(int argc, char **argv) {
    * Prints just the integer PID, or the literal string "NONE".
    * App uses this instead of 'status' to avoid PID file deletion races. */
   if (strcmp(cmd, "pid") == 0) {
-    if (auto_resolve_pidfile(&cfg) < 0) {
-      printf("NONE\n");
-      return 1;
-    }
     pid_t pid = 0;
-    if (read_and_validate_pid(cfg.pidfile, &pid) < 0 || pid <= 0) {
-      printf("NONE\n");
-      return 1;
+    if (is_container_running(&cfg, &pid) && pid > 0) {
+      printf("%d\n", (int)pid);
+      return 0;
     }
-    /* Only confirm alive — do NOT call cleanup on failure */
-    if (kill(pid, 0) < 0) {
-      printf("NONE\n");
-      return 1;
-    }
-    printf("%d\n", (int)pid);
-    return 0;
+    printf("NONE\n");
+    return 1;
   }
   if (strcmp(cmd, "info") == 0)
     return show_info(&cfg, 0);

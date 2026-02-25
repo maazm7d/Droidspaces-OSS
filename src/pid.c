@@ -84,9 +84,9 @@ static int is_pid_file(const char *name) {
   if (!name)
     return 0;
   size_t len = strlen(name);
-  if (len < 4)
+  if (len < strlen(DS_EXT_PID))
     return 0;
-  return (strcmp(name + len - 4, ".pid") == 0);
+  return (strcmp(name + len - strlen(DS_EXT_PID), DS_EXT_PID) == 0);
 }
 
 /* ---------------------------------------------------------------------------
@@ -105,6 +105,30 @@ int resolve_pidfile_from_name(const char *name, char *pidfile, size_t size) {
   return (r > 0 && (size_t)r < size) ? 0 : -1;
 }
 
+int is_container_running(struct ds_config *cfg, pid_t *pid_out) {
+  if (cfg->pidfile[0] == '\0') {
+    if (cfg->container_name[0] == '\0')
+      return 0;
+    resolve_pidfile_from_name(cfg->container_name, cfg->pidfile,
+                              sizeof(cfg->pidfile));
+  }
+
+  pid_t pid = 0;
+  if (read_and_validate_pid(cfg->pidfile, &pid) == 0 && pid > 0) {
+    if (pid_out)
+      *pid_out = pid;
+    return 1;
+  }
+
+  /* Prune stale pidfile if we explicitly checked it and it's dead */
+  if (pid == 0 && access(cfg->pidfile, F_OK) == 0) {
+    unlink(cfg->pidfile);
+    remove_mount_path(cfg->pidfile);
+  }
+
+  return 0;
+}
+
 int count_running_containers(char *first_name, size_t size) {
   DIR *d = opendir(get_pids_dir());
   if (!d)
@@ -115,19 +139,26 @@ int count_running_containers(char *first_name, size_t size) {
 
   while ((ent = readdir(d)) != NULL) {
     if (is_pid_file(ent->d_name)) {
-      char path[PATH_MAX];
-      const char *pids_dir = get_pids_dir();
-      if (snprintf(path, sizeof(path), "%.4070s/%.24s", pids_dir,
-                   ent->d_name) >= (int)sizeof(path))
-        continue;
+      struct ds_config tmp_cfg = {0};
+      resolve_pidfile_from_name(ent->d_name, tmp_cfg.pidfile,
+                                sizeof(tmp_cfg.pidfile));
+      /* resolve_pidfile_from_name above gives us "Pids/foo.pid.pid" if we pass
+       * ent->d_name ("foo.pid"). We need just the name. */
+      char clean_name[256];
+      safe_strncpy(clean_name, ent->d_name, sizeof(clean_name));
+      char *dot = strrchr(clean_name, '.');
+      if (dot)
+        *dot = '\0';
+
+      safe_strncpy(tmp_cfg.container_name, clean_name,
+                   sizeof(tmp_cfg.container_name));
+      resolve_pidfile_from_name(clean_name, tmp_cfg.pidfile,
+                                sizeof(tmp_cfg.pidfile));
 
       pid_t pid;
-      if (read_and_validate_pid(path, &pid) == 0) {
+      if (is_container_running(&tmp_cfg, &pid)) {
         if (count == 0 && first_name && size > 0) {
-          safe_strncpy(first_name, ent->d_name, size);
-          char *dot = strrchr(first_name, '.');
-          if (dot)
-            *dot = '\0';
+          safe_strncpy(first_name, clean_name, size);
         }
         count++;
       }
@@ -255,13 +286,20 @@ int show_containers(void) {
   struct dirent *ent;
   while ((ent = readdir(d)) != NULL) {
     if (is_pid_file(ent->d_name)) {
-      char pidfile[PATH_MAX];
-      if (snprintf(pidfile, sizeof(pidfile), "%.4070s/%.24s", get_pids_dir(),
-                   ent->d_name) >= (int)sizeof(pidfile))
-        continue;
+      struct ds_config tmp_cfg = {0};
+      char clean_name[128];
+      safe_strncpy(clean_name, ent->d_name, sizeof(clean_name));
+      char *dot = strrchr(clean_name, '.');
+      if (dot)
+        *dot = '\0';
+
+      safe_strncpy(tmp_cfg.container_name, clean_name,
+                   sizeof(tmp_cfg.container_name));
+      resolve_pidfile_from_name(clean_name, tmp_cfg.pidfile,
+                                sizeof(tmp_cfg.pidfile));
 
       pid_t pid;
-      if (read_and_validate_pid(pidfile, &pid) == 0) {
+      if (is_container_running(&tmp_cfg, &pid)) {
         if (count >= cap) {
           cap *= 2;
           struct container_info *tmp =
@@ -274,21 +312,13 @@ int show_containers(void) {
           containers = tmp;
         }
 
-        safe_strncpy(containers[count].name, ent->d_name,
+        safe_strncpy(containers[count].name, clean_name,
                      sizeof(containers[count].name));
-        char *dot = strrchr(containers[count].name, '.');
-        if (dot)
-          *dot = '\0';
-
         containers[count].pid = pid;
         size_t nlen = strlen(containers[count].name);
         if (nlen > max_name_len)
           max_name_len = nlen;
         count++;
-      } else if (pid == 0) {
-        /* Stale PID file, nuke it */
-        unlink(pidfile);
-        remove_mount_path(pidfile);
       }
     }
   }
