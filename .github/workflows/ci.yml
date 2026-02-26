@@ -9,7 +9,8 @@ on:
     inputs:
       tag_name:
         description: 'Tag name for the release (e.g., v4.3.1)'
-        required: true
+        required: false
+        default: 'test'
 
 jobs:
   android:
@@ -58,7 +59,7 @@ jobs:
 
     - name: Rename APK
       run: |
-        TAG="${{ github.event.inputs.tag_name || 'dev' }}"
+        TAG="${{ github.event.inputs.tag_name || 'test' }}"
         DATE=$(date +%Y-%m-%d)
         NEW_NAME="Droidspaces-universal-${TAG}-${DATE}.apk"
         mv Android/app/build/outputs/apk/release/app-release.apk Android/app/build/outputs/apk/release/${NEW_NAME}
@@ -163,7 +164,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.tag_name }}
-        name: Droidspaces ${{ github.event.inputs.tag_name }}
+        name: Droidspaces ${{ github.event.inputs.tag_name || 'Development Build' }}
         target_commitish: ${{ github.sha }}
         body: |
           ## What's Changed

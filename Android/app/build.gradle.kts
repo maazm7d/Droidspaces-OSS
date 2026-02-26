@@ -66,24 +66,44 @@ android {
                 enableV4Signing = true
             }
         } else {
-            // Fallback to default debug keystore if droidspaces.keystore not found or password not set
-            if (!keystoreFile.exists()) {
-                println("WARNING: droidspaces.keystore not found at ${keystoreFile.absolutePath}, using default debug keystore")
+            // Fallback to default debug keystore or generate a temporary one
+            var fallbackKeystore = file(System.getProperty("user.home") + "/.android/debug.keystore")
+
+            if (!keystoreFile.exists() && !fallbackKeystore.exists()) {
+                println("WARNING: No keystore found. Generating temporary CI keystore...")
+                val ciKeystore = file("../../ci-debug.keystore")
+                if (!ciKeystore.exists()) {
+                    val dn = "CN=John Doe, OU=Mobile, O=Anonymized, L=Earth, ST=Galaxy, C=UN"
+                    project.exec {
+                        commandLine(
+                            "keytool", "-genkeypair",
+                            "-v",
+                            "-keystore", ciKeystore.absolutePath,
+                            "-alias", "droidspaces",
+                            "-keyalg", "RSA",
+                            "-keysize", "2048",
+                            "-validity", "10000",
+                            "-storetype", "JKS",
+                            "-storepass", "android",
+                            "-keypass", "android",
+                            "-dname", dn,
+                            "-sigalg", "SHA256withRSA"
+                        )
+                    }
+                }
+                fallbackKeystore = ciKeystore
             }
-            if (keystorePassword.isEmpty()) {
-                println("WARNING: KEYSTORE_PASSWORD not set in local.properties or gradle.properties, using default debug keystore")
-            }
+
+            println("Using fallback keystore: ${fallbackKeystore.absolutePath}")
+
             getByName("debug") {
-                // Use default debug keystore
+                storeFile = fallbackKeystore
                 storePassword = "android"
-                keyAlias = "androiddebugkey"
+                keyAlias = if (fallbackKeystore.name.contains("ci-debug")) "droidspaces" else "androiddebugkey"
                 keyPassword = "android"
             }
-            // CRITICAL: Always create 'release' config to prevent CI build failures
             create("release") {
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+                initWith(getByName("debug"))
             }
         }
     }
