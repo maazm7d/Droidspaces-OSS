@@ -292,12 +292,28 @@ int ds_config_validate(struct ds_config *cfg) {
   int errors = 0;
 
   if (cfg->rootfs_path[0] && cfg->rootfs_img_path[0]) {
-    ds_error("Cannot specify both rootfs directory and image simultaneously.");
+    ds_error("Both rootfs directory and image specified simultaneously.");
+    ds_log("Directory: %s", cfg->rootfs_path);
+    ds_log("Image: %s", cfg->rootfs_img_path);
+    ds_log("Override one using --rootfs or --rootfs-img.");
     errors++;
   }
 
   if (!cfg->rootfs_path[0] && !cfg->rootfs_img_path[0]) {
     ds_error("No rootfs target specified (requires -r or -i).");
+    errors++;
+  }
+
+  /* Existence checks */
+  if (cfg->rootfs_path[0] && access(cfg->rootfs_path, F_OK) != 0) {
+    ds_error("Rootfs directory not found: '%s' (%s)", cfg->rootfs_path,
+             strerror(errno));
+    errors++;
+  }
+
+  if (cfg->rootfs_img_path[0] && access(cfg->rootfs_img_path, F_OK) != 0) {
+    ds_error("Rootfs image not found: '%s' (%s)", cfg->rootfs_img_path,
+             strerror(errno));
     errors++;
   }
 

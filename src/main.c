@@ -171,9 +171,13 @@ int main(int argc, char **argv) {
     switch (opt) {
     case 'r':
       safe_strncpy(cfg.rootfs_path, optarg, sizeof(cfg.rootfs_path));
+      cfg.rootfs_img_path[0] = '\0';
+      cfg.is_img_mount = 0;
       break;
     case 'i':
       safe_strncpy(cfg.rootfs_img_path, optarg, sizeof(cfg.rootfs_img_path));
+      cfg.rootfs_path[0] = '\0';
+      cfg.is_img_mount = 1;
       break;
     case 'n':
       safe_strncpy(cfg.container_name, optarg, sizeof(cfg.container_name));
