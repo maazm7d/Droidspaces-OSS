@@ -244,6 +244,8 @@ void check_kernel_recommendation(void);
 int ds_config_load(const char *config_path, struct ds_config *cfg);
 int ds_config_save(const char *config_path, struct ds_config *cfg);
 int ds_config_validate(struct ds_config *cfg);
+int ds_config_add_bind(struct ds_config *cfg, const char *src,
+                       const char *dest);
 char *ds_config_auto_path(const char *rootfs_path);
 
 /* ---------------------------------------------------------------------------

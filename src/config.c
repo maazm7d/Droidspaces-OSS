@@ -45,17 +45,39 @@ static void parse_bind_mounts(const char *value, struct ds_config *cfg) {
 
       /* Both SRC and DEST must be absolute for security */
       if (src[0] == '/' && dest[0] == '/') {
-        safe_strncpy(cfg->binds[cfg->bind_count].src, src,
-                     sizeof(cfg->binds[cfg->bind_count].src));
-        safe_strncpy(cfg->binds[cfg->bind_count].dest, dest,
-                     sizeof(cfg->binds[cfg->bind_count].dest));
-        cfg->bind_count++;
+        ds_config_add_bind(cfg, src, dest);
       }
     }
     token = strtok_r(NULL, ",", &saveptr);
   }
 
   free(copy);
+}
+
+int ds_config_add_bind(struct ds_config *cfg, const char *src,
+                       const char *dest) {
+  if (!src || !dest || src[0] == '\0' || dest[0] == '\0')
+    return 0;
+
+  /* Check for duplication */
+  for (int i = 0; i < cfg->bind_count; i++) {
+    if (strcmp(cfg->binds[i].src, src) == 0 &&
+        strcmp(cfg->binds[i].dest, dest) == 0) {
+      return 0; /* Already exists, skip */
+    }
+  }
+
+  if (cfg->bind_count >= DS_MAX_BINDS) {
+    ds_error("Too many bind mounts (max %d)", DS_MAX_BINDS);
+    return -1;
+  }
+
+  safe_strncpy(cfg->binds[cfg->bind_count].src, src,
+               sizeof(cfg->binds[cfg->bind_count].src));
+  safe_strncpy(cfg->binds[cfg->bind_count].dest, dest,
+               sizeof(cfg->binds[cfg->bind_count].dest));
+  cfg->bind_count++;
+  return 1;
 }
 
 /* ---------------------------------------------------------------------------

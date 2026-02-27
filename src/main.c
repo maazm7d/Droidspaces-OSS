@@ -239,11 +239,8 @@ int main(int argc, char **argv) {
           return 1;
         }
 
-        safe_strncpy(cfg.binds[cfg.bind_count].src, src,
-                     sizeof(cfg.binds[cfg.bind_count].src));
-        safe_strncpy(cfg.binds[cfg.bind_count].dest, dest,
-                     sizeof(cfg.binds[cfg.bind_count].dest));
-        cfg.bind_count++;
+        if (ds_config_add_bind(&cfg, src, dest) < 0)
+          return 1;
 
         token = strtok_r(NULL, ",", &saveptr);
       }
