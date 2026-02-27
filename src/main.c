@@ -48,6 +48,7 @@ void print_usage(void) {
   printf("  -V, --volatile            Discard changes on exit (OverlayFS)\n");
   printf(
       "  -B, --bind-mount=SRC:DEST Bind mount host directory into container\n");
+  printf("  -C, --conf=PATH           Load configuration from file\n");
   printf("  --help                    Show this help message\n\n");
 
   printf(C_BOLD "Examples:" C_RESET "\n");
@@ -109,6 +110,8 @@ int main(int argc, char **argv) {
       {"selinux-permissive", no_argument, 0, 'P'},
       {"volatile", no_argument, 0, 'V'},
       {"bind-mount", required_argument, 0, 'B'},
+      {"conf", required_argument, 0, 'C'},
+      {"config", required_argument, 0, 'C'},
       {"help", no_argument, 0, 'v'},
       {0, 0, 0, 0}};
 
@@ -116,26 +119,54 @@ int main(int argc, char **argv) {
   opterr = 0;
 
   /*
-   * Two-pass argument parsing:
-   * 1. Pass 1 finds the command strictly (using '+' prefix).
-   * 2. Based on the command, Pass 2 decides whether to allow flag permutation.
-   *    Permutation is allowed for life-cycle commands (e.g., start -f) but
-   *    forbidden for execution commands (e.g., run ls -l) to protect sub-flags.
+   * Multi-pass argument parsing:
+   * 1. Find command and look for explicit --conf flag.
+   * 2. Load config (explicit or auto-detected).
+   * 3. Re-parse CLI to apply overrides on top of config.
    */
   const char *discovered_cmd = NULL;
   int temp_optind = optind;
-  while (getopt_long(argc, argv, "+r:i:n:p:h:d:fHISPvVB:", long_options,
-                     NULL) != -1)
-    ;
+  int opt;
+  while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHISPvVB:C:",
+                            long_options, NULL)) != -1) {
+    if (opt == 'C') {
+      safe_strncpy(cfg.config_file, optarg, sizeof(cfg.config_file));
+      cfg.config_file_specified = 1;
+    }
+  }
   if (optind < argc)
     discovered_cmd = argv[optind];
-  optind = temp_optind; /* Reset for Pass 2 */
+  optind = temp_optind; /* Reset for config loading */
 
+  /* Load configuration if specified or available */
+  if (cfg.config_file_specified) {
+    ds_config_load(cfg.config_file, &cfg);
+  } else {
+    /* Auto-detect config from CLI rootfs arguments (preview only) */
+    char temp_r[PATH_MAX] = {0}, temp_i[PATH_MAX] = {0};
+    int t_optind = optind;
+    while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHISPvVB:C:",
+                              long_options, NULL)) != -1) {
+      if (opt == 'r')
+        safe_strncpy(temp_r, optarg, sizeof(temp_r));
+      if (opt == 'i')
+        safe_strncpy(temp_i, optarg, sizeof(temp_i));
+    }
+    optind = t_optind;
+
+    char *auto_p = ds_config_auto_path(temp_r[0] ? temp_r : temp_i);
+    if (auto_p) {
+      safe_strncpy(cfg.config_file, auto_p, sizeof(cfg.config_file));
+      ds_config_load(cfg.config_file, &cfg);
+      free(auto_p);
+    }
+  }
+
+  /* Re-parse CLI to apply overrides on top of loaded configuration */
   int strict = (discovered_cmd && (strcmp(discovered_cmd, "run") == 0));
   const char *optstring =
-      strict ? "+r:i:n:p:h:d:fHISPvVB:" : "r:i:n:p:h:d:fHISPvVB:";
+      strict ? "+r:i:n:p:h:d:fHISPvVB:C:" : "r:i:n:p:h:d:fHISPvVB:C:";
 
-  int opt;
   while ((opt = getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
     switch (opt) {
     case 'r':
@@ -173,6 +204,9 @@ int main(int argc, char **argv) {
       break;
     case 'V':
       cfg.volatile_mode = 1;
+      break;
+    case 'C':
+      /* Already handled in first pass, but included here for consistency */
       break;
     case 'B': {
       char *saveptr;
@@ -228,6 +262,7 @@ int main(int argc, char **argv) {
       return 1;
     }
   }
+
   /* Prevent foreground mode in non-interactive environments (pipes, CI/CD) */
   if (cfg.foreground && (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO))) {
     ds_die("Foreground mode (-f/--foreground) requires a fully interactive "
@@ -296,14 +331,23 @@ int main(int argc, char **argv) {
 
   /* Start command */
   if (strcmp(cmd, "start") == 0) {
+    if (ds_config_validate(&cfg) < 0)
+      return 1;
+
+    if (cfg.config_file[0]) {
+      /* Resolve mandatory name/hostname early for saving */
+      if (cfg.container_name[0] == '\0' && cfg.rootfs_path[0]) {
+        generate_container_name(cfg.rootfs_path, cfg.container_name,
+                                sizeof(cfg.container_name));
+      }
+      if (cfg.hostname[0] == '\0' && cfg.container_name[0]) {
+        safe_strncpy(cfg.hostname, cfg.container_name, sizeof(cfg.hostname));
+      }
+      ds_config_save(cfg.config_file, &cfg);
+    }
+
     if (validate_kernel_version() < 0)
       return 1;
-    if (cfg.rootfs_path[0] == '\0' && cfg.rootfs_img_path[0] == '\0')
-      ds_die("--rootfs or --rootfs-img is required for start");
-    if (cfg.rootfs_path[0] != '\0' && cfg.rootfs_img_path[0] != '\0')
-      ds_die("--rootfs and --rootfs-img are mutually exclusive");
-    if (cfg.container_name[0] != '\0' && cfg.pidfile[0] != '\0')
-      ds_die("--name and --pidfile are mutually exclusive");
 
     if (check_requirements() < 0)
       return 1;
@@ -333,10 +377,23 @@ int main(int argc, char **argv) {
   }
 
   if (strcmp(cmd, "restart") == 0) {
+    if (ds_config_validate(&cfg) < 0)
+      return 1;
+
+    if (cfg.config_file[0]) {
+      /* Resolve mandatory name/hostname early for saving */
+      if (cfg.container_name[0] == '\0' && cfg.rootfs_path[0]) {
+        generate_container_name(cfg.rootfs_path, cfg.container_name,
+                                sizeof(cfg.container_name));
+      }
+      if (cfg.hostname[0] == '\0' && cfg.container_name[0]) {
+        safe_strncpy(cfg.hostname, cfg.container_name, sizeof(cfg.hostname));
+      }
+      ds_config_save(cfg.config_file, &cfg);
+    }
+
     if (validate_kernel_version() < 0)
       return 1;
-    if (cfg.rootfs_path[0] == '\0' && cfg.rootfs_img_path[0] == '\0')
-      ds_die("--rootfs or --rootfs-img is required for restart");
     if (check_requirements() < 0)
       return 1;
 

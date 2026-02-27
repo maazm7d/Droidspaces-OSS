@@ -21,6 +21,7 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/console.c \
        $(SRC_DIR)/pid.c \
        $(SRC_DIR)/boot.c \
+       $(SRC_DIR)/config.c \
        $(SRC_DIR)/container.c \
        $(SRC_DIR)/environment.c \
        $(SRC_DIR)/documentation.c \

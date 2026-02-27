@@ -143,6 +143,10 @@ static void print_page(int page, const char *bin) {
     printf("  %s --name=mycontainer --rootfs-img=/path/to/rootfs.img start\n\n",
            bin);
     printf("  (If --name isn't defined, it will be auto-generated)\n\n");
+    printf("%sUsing Configuration Files:%s\n", bold, reset);
+    printf("  %s --conf=./container.config start\n", bin);
+    printf(
+        "  (Settings are auto-saved to container.config on every start)\n\n");
 
     printf("%sListing running containers:%s\n", bold, reset);
     printf("  %s show\n\n", bin);

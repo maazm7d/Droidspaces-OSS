@@ -194,6 +194,10 @@ struct ds_config {
   struct ds_bind_mount binds[DS_MAX_BINDS];
   int bind_count;
 
+  /* Configuration persistence */
+  char config_file[PATH_MAX];
+  int config_file_specified;
+
   /* Terminal (console + ttys) */
   struct ds_tty_info console;
   struct ds_tty_info ttys[DS_MAX_TTYS];
@@ -232,6 +236,15 @@ int ds_recv_fd(int sock);
 void print_ds_banner(void);
 int is_systemd_rootfs(const char *path);
 void check_kernel_recommendation(void);
+
+/* ---------------------------------------------------------------------------
+ * config.c
+ * ---------------------------------------------------------------------------*/
+
+int ds_config_load(const char *config_path, struct ds_config *cfg);
+int ds_config_save(const char *config_path, struct ds_config *cfg);
+int ds_config_validate(struct ds_config *cfg);
+char *ds_config_auto_path(const char *rootfs_path);
 
 /* ---------------------------------------------------------------------------
  * android.c
