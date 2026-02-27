@@ -237,7 +237,6 @@ object ContainerManager {
         try {
             val binary = Constants.DROIDSPACES_BINARY_PATH
             val quotedName = ContainerCommandBuilder.quote(containerName)
-
             val result = Shell.cmd("\"$binary\" --name=$quotedName pid 2>/dev/null").exec()
 
             val output = result.out.firstOrNull()?.trim() ?: "NONE"

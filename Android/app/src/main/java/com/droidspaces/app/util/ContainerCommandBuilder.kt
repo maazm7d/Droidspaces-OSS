@@ -18,7 +18,16 @@ object ContainerCommandBuilder {
     }
 
     /**
+     * Get the absolute path to the container's configuration file.
+     */
+    fun getConfigPath(container: ContainerInfo): String {
+        val sanitizedName = ContainerManager.sanitizeContainerName(container.name)
+        return "${Constants.CONTAINERS_BASE_PATH}/$sanitizedName/${Constants.CONTAINER_CONFIG_FILE}"
+    }
+
+    /**
      * Build start command for a container based on its configuration.
+     * Uses the central config file instead of passing all flags individually.
      */
     fun buildStartCommand(container: ContainerInfo): String {
         val parts = mutableListOf<String>()
@@ -26,53 +35,8 @@ object ContainerCommandBuilder {
         // Binary path
         parts.add(DROIDSPACES_BINARY_PATH)
 
-        // Container name (quoted to handle spaces)
-        parts.add("--name=${quote(container.name)}")
-
-        // Rootfs path (quoted to handle spaces)
-        // Use --rootfs-img for sparse images, --rootfs for directories
-        if (container.useSparseImage) {
-            parts.add("--rootfs-img=${quote(container.rootfsPath)}")
-        } else {
-        parts.add("--rootfs=${quote(container.rootfsPath)}")
-        }
-
-        // Hostname (only if not empty and different from name, quoted to handle spaces)
-        if (container.hostname.isNotEmpty() && container.hostname != container.name) {
-            parts.add("--hostname=${quote(container.hostname)}")
-        }
-
-        // DNS servers (quoted to handle the comma-separated string safely)
-        if (container.dnsServers.isNotEmpty()) {
-            parts.add("--dns=${quote(container.dnsServers)}")
-        }
-
-        // Feature flags
-        if (container.enableIPv6) {
-            parts.add("--enable-ipv6")
-        }
-
-        if (container.enableAndroidStorage) {
-            parts.add("--enable-android-storage")
-        }
-
-        if (container.enableHwAccess) {
-            parts.add("--hw-access")
-        }
-
-        if (container.selinuxPermissive) {
-            parts.add("--selinux-permissive")
-        }
-
-        if (container.volatileMode) {
-            parts.add("-V")
-        }
-
-        if (container.bindMounts.isNotEmpty()) {
-            val bindString = container.bindMounts.joinToString(",") { "${it.src}:${it.dest}" }
-            parts.add("-B")
-            parts.add(quote(bindString))
-        }
+        // Config file path
+        parts.add("--config=${quote(getConfigPath(container))}")
 
         // Command
         parts.add("start")
@@ -89,43 +53,9 @@ object ContainerCommandBuilder {
 
     /**
      * Build restart command for a container.
-     * Built directly (not via string-replace) to avoid corruption if name/path contains "start".
      */
     fun buildRestartCommand(container: ContainerInfo): String {
-        val parts = mutableListOf<String>()
-
-        parts.add(DROIDSPACES_BINARY_PATH)
-        parts.add("--name=${quote(container.name)}")
-
-        if (container.useSparseImage) {
-            parts.add("--rootfs-img=${quote(container.rootfsPath)}")
-        } else {
-            parts.add("--rootfs=${quote(container.rootfsPath)}")
-        }
-
-        if (container.hostname.isNotEmpty() && container.hostname != container.name) {
-            parts.add("--hostname=${quote(container.hostname)}")
-        }
-
-        if (container.dnsServers.isNotEmpty()) {
-            parts.add("--dns=${quote(container.dnsServers)}")
-        }
-
-        if (container.enableIPv6) parts.add("--enable-ipv6")
-        if (container.enableAndroidStorage) parts.add("--enable-android-storage")
-        if (container.enableHwAccess) parts.add("--hw-access")
-        if (container.selinuxPermissive) parts.add("--selinux-permissive")
-        if (container.volatileMode) parts.add("-V")
-
-        if (container.bindMounts.isNotEmpty()) {
-            val bindString = container.bindMounts.joinToString(",") { "${it.src}:${it.dest}" }
-            parts.add("-B")
-            parts.add(quote(bindString))
-        }
-
-        parts.add("restart")
-
-        return parts.joinToString(" ")
+        return "$DROIDSPACES_BINARY_PATH --config=${quote(getConfigPath(container))} restart"
     }
 
     /**
