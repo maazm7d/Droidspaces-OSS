@@ -12,6 +12,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.painterResource
+import com.droidspaces.app.R
 import com.droidspaces.app.util.ContainerInfo
 import com.droidspaces.app.util.Constants
 
@@ -104,6 +106,7 @@ fun InstallationSummaryScreen(
                     if (config.enableIPv6) SummaryItem("IPv6", "Enabled", Icons.Default.NetworkCheck)
                     if (config.enableAndroidStorage) SummaryItem("Android Storage", "Enabled", Icons.Default.Storage)
                     if (config.enableHwAccess) SummaryItem("Hardware Access", "Enabled", Icons.Default.Devices)
+                    if (config.enableTermuxX11) SummaryItem("Termux X11", "Enabled", painterResource(id = R.drawable.ic_x11))
                     if (config.selinuxPermissive) SummaryItem("SELinux", "Permissive", Icons.Default.Security)
                     if (config.volatileMode) SummaryItem("Volatile Mode", "Enabled", Icons.Default.AutoDelete)
                     if (config.runAtBoot) SummaryItem("Run at Boot", "Enabled", Icons.Default.PowerSettingsNew)
@@ -135,7 +138,7 @@ fun InstallationSummaryScreen(
 private fun SummaryItem(
     label: String,
     value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: Any // Can be ImageVector or Painter
 ) {
     Row(
         modifier = Modifier
@@ -144,12 +147,24 @@ private fun SummaryItem(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
+        when (icon) {
+            is androidx.compose.ui.graphics.vector.ImageVector -> {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            is androidx.compose.ui.graphics.painter.Painter -> {
+                Icon(
+                    painter = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)

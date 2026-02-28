@@ -56,6 +56,7 @@ fun EditContainerScreen(
     var enableIPv6 by remember { mutableStateOf(container.enableIPv6) }
     var enableAndroidStorage by remember { mutableStateOf(container.enableAndroidStorage) }
     var enableHwAccess by remember { mutableStateOf(container.enableHwAccess) }
+    var enableTermuxX11 by remember { mutableStateOf(container.enableTermuxX11) }
     var selinuxPermissive by remember { mutableStateOf(container.selinuxPermissive) }
     var volatileMode by remember { mutableStateOf(container.volatileMode) }
     var bindMounts by remember { mutableStateOf(container.bindMounts) }
@@ -67,6 +68,7 @@ fun EditContainerScreen(
     var savedEnableIPv6 by remember { mutableStateOf(container.enableIPv6) }
     var savedEnableAndroidStorage by remember { mutableStateOf(container.enableAndroidStorage) }
     var savedEnableHwAccess by remember { mutableStateOf(container.enableHwAccess) }
+    var savedEnableTermuxX11 by remember { mutableStateOf(container.enableTermuxX11) }
     var savedSelinuxPermissive by remember { mutableStateOf(container.selinuxPermissive) }
     var savedVolatileMode by remember { mutableStateOf(container.volatileMode) }
     var savedBindMounts by remember { mutableStateOf(container.bindMounts) }
@@ -90,6 +92,7 @@ fun EditContainerScreen(
             enableIPv6 != savedEnableIPv6 ||
             enableAndroidStorage != savedEnableAndroidStorage ||
             enableHwAccess != savedEnableHwAccess ||
+            enableTermuxX11 != savedEnableTermuxX11 ||
             selinuxPermissive != savedSelinuxPermissive ||
             volatileMode != savedVolatileMode ||
             bindMounts != savedBindMounts ||
@@ -118,6 +121,7 @@ fun EditContainerScreen(
                     enableIPv6 = enableIPv6,
                     enableAndroidStorage = enableAndroidStorage,
                     enableHwAccess = enableHwAccess,
+                    enableTermuxX11 = if (enableHwAccess) true else enableTermuxX11,
                     selinuxPermissive = selinuxPermissive,
                     volatileMode = volatileMode,
                     bindMounts = bindMounts,
@@ -137,6 +141,7 @@ fun EditContainerScreen(
                         savedEnableIPv6 = enableIPv6
                         savedEnableAndroidStorage = enableAndroidStorage
                         savedEnableHwAccess = enableHwAccess
+                        savedEnableTermuxX11 = enableTermuxX11
                         savedSelinuxPermissive = selinuxPermissive
                         savedVolatileMode = volatileMode
                         savedBindMounts = bindMounts
@@ -408,6 +413,18 @@ fun EditContainerScreen(
                     clearFocus()
                     enableHwAccess = it
                 }
+            )
+
+            ToggleCard(
+                painter = androidx.compose.ui.res.painterResource(R.drawable.ic_x11),
+                title = context.getString(R.string.termux_x11),
+                description = context.getString(R.string.termux_x11_description),
+                checked = enableHwAccess || enableTermuxX11,
+                onCheckedChange = {
+                    clearFocus()
+                    enableTermuxX11 = it
+                },
+                enabled = !enableHwAccess
             )
 
             ToggleCard(

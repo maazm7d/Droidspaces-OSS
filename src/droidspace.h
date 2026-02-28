@@ -184,6 +184,7 @@ struct ds_config {
   /* Flags */
   int foreground;         /* --foreground */
   int hw_access;          /* --hw-access */
+  int termux_x11;         /* --termux-x11 (Android only) */
   int volatile_mode;      /* --volatile */
   int enable_ipv6;        /* --enable-ipv6 */
   int android_storage;    /* --enable-android-storage */
@@ -305,6 +306,8 @@ int ds_cgroup_attach(pid_t target_pid);
  * ---------------------------------------------------------------------------*/
 
 int scan_host_gpu_gids(gid_t *gids, int max_gids);
+int setup_gpu_groups(gid_t *gpu_gids, int gid_count);
+int setup_x11_socket(void);
 int setup_hardware_access(struct ds_config *cfg, gid_t *gpu_gids,
                           int gid_count);
 

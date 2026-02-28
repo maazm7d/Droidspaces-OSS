@@ -30,6 +30,9 @@ class ContainerInstallationViewModel : ViewModel() {
 
     var enableHwAccess: Boolean by mutableStateOf(false)
         private set
+    
+    var enableTermuxX11: Boolean by mutableStateOf(false)
+        private set
 
     var selinuxPermissive: Boolean by mutableStateOf(false)
         private set
@@ -70,6 +73,7 @@ class ContainerInstallationViewModel : ViewModel() {
         enableIPv6: Boolean,
         enableAndroidStorage: Boolean,
         enableHwAccess: Boolean,
+        enableTermuxX11: Boolean,
         selinuxPermissive: Boolean,
         volatileMode: Boolean,
         bindMounts: List<BindMount>,
@@ -79,6 +83,7 @@ class ContainerInstallationViewModel : ViewModel() {
         this.enableIPv6 = enableIPv6
         this.enableAndroidStorage = enableAndroidStorage
         this.enableHwAccess = enableHwAccess
+        this.enableTermuxX11 = enableTermuxX11
         this.selinuxPermissive = selinuxPermissive
         this.volatileMode = volatileMode
         this.bindMounts = bindMounts
@@ -101,6 +106,7 @@ class ContainerInstallationViewModel : ViewModel() {
             enableIPv6 = enableIPv6,
             enableAndroidStorage = enableAndroidStorage,
             enableHwAccess = enableHwAccess,
+            enableTermuxX11 = if (enableHwAccess) true else enableTermuxX11,
             selinuxPermissive = selinuxPermissive,
             volatileMode = volatileMode,
             bindMounts = bindMounts,
@@ -119,6 +125,7 @@ class ContainerInstallationViewModel : ViewModel() {
         enableIPv6 = false
         enableAndroidStorage = false
         enableHwAccess = false
+        enableTermuxX11 = false
         selinuxPermissive = false
         volatileMode = false
         bindMounts = emptyList()

@@ -31,16 +31,12 @@ static int parse_bool(const char *val, const char *key_name) {
   if (!val)
     return 0;
 
-  if (strcasecmp(val, "1") == 0 ||
-      strcasecmp(val, "true") == 0 ||
-      strcasecmp(val, "yes") == 0 ||
-      strcasecmp(val, "on") == 0)
+  if (strcasecmp(val, "1") == 0 || strcasecmp(val, "true") == 0 ||
+      strcasecmp(val, "yes") == 0 || strcasecmp(val, "on") == 0)
     return 1;
 
-  if (strcasecmp(val, "0") == 0 ||
-      strcasecmp(val, "false") == 0 ||
-      strcasecmp(val, "no") == 0 ||
-      strcasecmp(val, "off") == 0)
+  if (strcasecmp(val, "0") == 0 || strcasecmp(val, "false") == 0 ||
+      strcasecmp(val, "no") == 0 || strcasecmp(val, "off") == 0)
     return 0;
 
   ds_warn("Config: Invalid boolean value '%s' for key '%s' (defaulting to 0)",
@@ -163,6 +159,8 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
       cfg->android_storage = parse_bool(val, key);
     } else if (strcmp(key, "enable_hw_access") == 0) {
       cfg->hw_access = parse_bool(val, key);
+    } else if (strcmp(key, "enable_termux_x11") == 0) {
+      cfg->termux_x11 = parse_bool(val, key);
     } else if (strcmp(key, "selinux_permissive") == 0) {
       cfg->selinux_permissive = parse_bool(val, key);
     } else if (strcmp(key, "volatile_mode") == 0) {
@@ -190,6 +188,7 @@ static const char *KNOWN_KEYS[] = {"name",
                                    "enable_ipv6",
                                    "enable_android_storage",
                                    "enable_hw_access",
+                                   "enable_termux_x11",
                                    "selinux_permissive",
                                    "volatile_mode",
                                    "foreground",
@@ -297,6 +296,7 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
   fprintf(f_out, "enable_ipv6=%d\n", cfg->enable_ipv6);
   fprintf(f_out, "enable_android_storage=%d\n", cfg->android_storage);
   fprintf(f_out, "enable_hw_access=%d\n", cfg->hw_access);
+  fprintf(f_out, "enable_termux_x11=%d\n", cfg->termux_x11);
   fprintf(f_out, "selinux_permissive=%d\n", cfg->selinux_permissive);
   fprintf(f_out, "volatile_mode=%d\n", cfg->volatile_mode);
   fprintf(f_out, "foreground=%d\n", cfg->foreground);

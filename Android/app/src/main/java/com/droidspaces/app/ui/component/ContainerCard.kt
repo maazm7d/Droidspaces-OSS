@@ -214,6 +214,7 @@ fun ContainerCard(
             if (container.enableIPv6) options.add(context.getString(R.string.ipv6_option))
             if (container.enableAndroidStorage) options.add(context.getString(R.string.storage_option))
             if (container.enableHwAccess) options.add(context.getString(R.string.hw_option))
+            if (container.enableTermuxX11) options.add(context.getString(R.string.x11_option))
             if (container.selinuxPermissive) options.add(context.getString(R.string.selinux_option))
             if (container.runAtBoot) options.add(context.getString(R.string.run_at_boot_option))
             if (container.volatileMode) options.add(context.getString(R.string.volatile_option))

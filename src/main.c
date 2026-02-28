@@ -105,6 +105,7 @@ int main(int argc, char **argv) {
       {"dns", required_argument, 0, 'd'},
       {"foreground", no_argument, 0, 'f'},
       {"hw-access", no_argument, 0, 'H'},
+      {"termux-x11", no_argument, 0, 'X'},
       {"enable-ipv6", no_argument, 0, 'I'},
       {"enable-android-storage", no_argument, 0, 'S'},
       {"selinux-permissive", no_argument, 0, 'P'},
@@ -127,8 +128,8 @@ int main(int argc, char **argv) {
   const char *discovered_cmd = NULL;
   int temp_optind = optind;
   int opt;
-  while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHISPvVB:C:",
-                            long_options, NULL)) != -1) {
+  while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHXPvVB:C:", long_options,
+                            NULL)) != -1) {
     if (opt == 'C') {
       safe_strncpy(cfg.config_file, optarg, sizeof(cfg.config_file));
       cfg.config_file_specified = 1;
@@ -145,7 +146,7 @@ int main(int argc, char **argv) {
     /* Auto-detect config from CLI rootfs arguments (preview only) */
     char temp_r[PATH_MAX] = {0}, temp_i[PATH_MAX] = {0};
     int t_optind = optind;
-    while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHISPvVB:C:",
+    while ((opt = getopt_long(argc, argv, "+r:i:n:p:h:d:fHXPvVB:C:",
                               long_options, NULL)) != -1) {
       if (opt == 'r')
         safe_strncpy(temp_r, optarg, sizeof(temp_r));
@@ -165,7 +166,7 @@ int main(int argc, char **argv) {
   /* Re-parse CLI to apply overrides on top of loaded configuration */
   int strict = (discovered_cmd && (strcmp(discovered_cmd, "run") == 0));
   const char *optstring =
-      strict ? "+r:i:n:p:h:d:fHISPvVB:C:" : "r:i:n:p:h:d:fHISPvVB:C:";
+      strict ? "+r:i:n:p:h:d:fHXPvVB:C:" : "r:i:n:p:h:d:fHXPvVB:C:";
 
   while ((opt = getopt_long(argc, argv, optstring, long_options, NULL)) != -1) {
     switch (opt) {
@@ -196,6 +197,13 @@ int main(int argc, char **argv) {
       break;
     case 'H':
       cfg.hw_access = 1;
+      break;
+    case 'X':
+      if (is_android()) {
+        cfg.termux_x11 = 1;
+      } else {
+        ds_warn("--termux-x11 is only applicable on Android. Ignoring.");
+      }
       break;
     case 'I':
       cfg.enable_ipv6 = 1;

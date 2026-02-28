@@ -120,7 +120,7 @@ static int has_user(const char *users, const char *username) {
   return 0;
 }
 
-static int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
+int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
   if (gid_count <= 0)
     return 0;
 
@@ -279,7 +279,7 @@ static int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
  * Non-fatal: silently returns 0 if no X11 socket is found.
  *
  */
-static int setup_x11_socket(void) {
+int setup_x11_socket(void) {
   const char *x11_source = NULL;
 
   /* Detect platform and find X11 socket.
@@ -334,14 +334,16 @@ static int setup_x11_socket(void) {
  */
 int setup_hardware_access(struct ds_config *cfg, gid_t *gpu_gids,
                           int gid_count) {
-  if (!cfg->hw_access)
+  if (!cfg->hw_access && !cfg->termux_x11)
     return 0;
 
   /* 1. Create GPU groups inside the container */
-  setup_gpu_groups(gpu_gids, gid_count);
+  if (cfg->hw_access)
+    setup_gpu_groups(gpu_gids, gid_count);
 
   /* 2. Mount X11 socket for GUI applications */
-  setup_x11_socket();
+  if (cfg->hw_access || cfg->termux_x11)
+    setup_x11_socket();
 
   return 0;
 }
