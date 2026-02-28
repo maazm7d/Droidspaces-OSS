@@ -2,7 +2,6 @@
 <resources>
     <!-- App Info -->
     <string name="app_name">Droidspaces</string>
-    <string name="app_version">v2.7.2-stable</string>
 
     <!-- Welcome Screen -->
     <string name="welcome_title">Willkommen bei Droidspaces</string>

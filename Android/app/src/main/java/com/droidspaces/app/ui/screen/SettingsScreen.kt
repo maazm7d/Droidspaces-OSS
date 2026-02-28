@@ -310,7 +310,7 @@ fun SettingsScreen(
                     )
                 },
                 supportingContent = {
-                    Text(context.getString(R.string.app_version))
+                    Text(getAppVersion(context))
                 },
                 modifier = Modifier.clickable {
                     showAboutDialog = true

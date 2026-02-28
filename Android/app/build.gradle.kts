@@ -15,6 +15,38 @@ if (keystorePropertiesFile.exists()) {
     }
 }
 
+// Helper to extract version from C header
+fun getDSVersion(): String {
+    val headerFile = file("../../src/droidspace.h")
+    if (!headerFile.exists()) return "1.0.0"
+    
+    val pattern = Regex("#define\\s+DS_VERSION\\s+\"([^\"]+)\"")
+    var foundVersion = "1.0.0"
+    
+    headerFile.useLines { lines ->
+        for (line in lines) {
+            val match = pattern.find(line)
+            if (match != null) {
+                foundVersion = match.groupValues[1]
+                break
+            }
+        }
+    }
+    return foundVersion
+}
+
+val dsVersionName = getDSVersion()
+val dsVersionCodeVal = dsVersionName.split(".").let { parts ->
+    try {
+        val major = parts.getOrNull(0)?.toInt() ?: 1
+        val minor = parts.getOrNull(1)?.toInt() ?: 0
+        val patch = parts.getOrNull(2)?.toInt() ?: 0
+        major * 10000 + minor * 100 + patch
+    } catch (e: Exception) {
+        1
+    }
+}
+
 android {
     namespace = "com.droidspaces.app"
     compileSdk = 34
@@ -23,8 +55,8 @@ android {
         applicationId = "com.droidspaces.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = dsVersionCodeVal
+        versionName = dsVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
