@@ -47,6 +47,8 @@ void print_usage(void) {
   printf("  -f, --foreground          Run in foreground (attach console)\n");
   printf("  -V, --volatile            Discard changes on exit (OverlayFS)\n");
   printf(
+      "  -X, --termux-x11          Enable Termux-X11 support (Android only)\n");
+  printf(
       "  -B, --bind-mount=SRC:DEST Bind mount host directory into container\n");
   printf("  -C, --conf=PATH           Load configuration from file\n");
   printf("  --help                    Show this help message\n\n");
