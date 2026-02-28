@@ -24,8 +24,10 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
   if (!force_cleanup)
     sync();
 
-  if (is_android() && !skip_unmount && count_running_containers(NULL, 0) == 0)
+  if (is_android() && !skip_unmount && count_running_containers(NULL, 0) == 0) {
     android_optimizations(0);
+    cleanup_unified_tmpfs();
+  }
 
   /* 1. Cleanup firmware path (skip when force — accessing zombie rootfs hangs)
    */
@@ -231,6 +233,12 @@ int start_rootfs(struct ds_config *cfg) {
     cfg->is_img_mount = 1;
     safe_strncpy(cfg->img_mount_point, cfg->rootfs_path,
                  sizeof(cfg->img_mount_point));
+  }
+
+  /* 2b. Android Termux Bridge Preparation - only if flag is set */
+  if (is_android() && cfg->termux_x11) {
+    stop_termux_if_running();
+    setup_unified_tmpfs();
   }
 
   /* 3. Early pre-flight for volatile mode (before any host changes) */

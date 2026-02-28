@@ -104,6 +104,8 @@
 #define DS_X11_PATH_DESKTOP "/.old_root/tmp/.X11-unix"
 #define DS_X11_PATH_TERMUX                                                     \
   "/.old_root/data/data/com.termux/files/usr/tmp/.X11-unix"
+#define DS_TERMUX_TMP_DIR "/data/data/com.termux/files/usr/tmp"
+#define DS_TERMUX_TMP_OLDROOT "/.old_root/data/data/com.termux/files/usr/tmp"
 #define DS_X11_CONTAINER_DIR "/tmp/.X11-unix"
 
 /* File Extensions */
@@ -240,6 +242,8 @@ void firmware_path_add_rootfs(const char *rootfs);
 void firmware_path_remove_rootfs(const char *rootfs);
 int run_command(char *const argv[]);
 int run_command_quiet(char *const argv[]);
+int get_selinux_context(const char *path, char *buf, size_t size);
+int set_selinux_context(const char *path, const char *context);
 int ds_send_fd(int sock, int fd);
 int ds_recv_fd(int sock);
 void print_ds_banner(void);
@@ -307,7 +311,10 @@ int ds_cgroup_attach(pid_t target_pid);
 
 int scan_host_gpu_gids(gid_t *gids, int max_gids);
 int setup_gpu_groups(gid_t *gpu_gids, int gid_count);
-int setup_x11_socket(void);
+void stop_termux_if_running(void);
+int setup_unified_tmpfs(void);
+void cleanup_unified_tmpfs(void);
+int setup_x11_and_virgl_sockets(struct ds_config *cfg);
 int setup_hardware_access(struct ds_config *cfg, gid_t *gpu_gids,
                           int gid_count);
 

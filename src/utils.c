@@ -8,6 +8,7 @@
 #include "droidspace.h"
 #include <ftw.h>
 #include <time.h>
+#include <sys/xattr.h>
 
 /* ---------------------------------------------------------------------------
  * String helpers
@@ -670,6 +671,45 @@ int is_systemd_rootfs(const char *path) {
         return 1;
       }
     }
+  }
+
+  return 0;
+}
+
+int get_selinux_context(const char *path, char *buf, size_t size) {
+  if (!path || !buf || size == 0)
+    return -1;
+
+  /* Use lgetxattr to read the security.selinux attribute */
+  ssize_t len = lgetxattr(path, "security.selinux", buf, size - 1);
+  if (len < 0) {
+#ifdef SYS_lgetxattr
+    len = syscall(SYS_lgetxattr, path, "security.selinux", buf, size - 1);
+#endif
+  }
+
+  /* FIX: Check bounds before writing null terminator */
+  if (len < 0 || len >= (ssize_t)(size - 1)) {
+    return -1;
+  }
+
+  buf[len] = '\0';
+  return 0;
+}
+
+int set_selinux_context(const char *path, const char *context) {
+  if (!path || !context)
+    return -1;
+
+  size_t len = strlen(context);
+  if (lsetxattr(path, "security.selinux", context, len, 0) < 0) {
+#ifdef SYS_lsetxattr
+    if (syscall(SYS_lsetxattr, path, "security.selinux", context, len, 0) < 0) {
+      return -1;
+    }
+#else
+    return -1;
+#endif
   }
 
   return 0;

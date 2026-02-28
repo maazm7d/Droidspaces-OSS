@@ -11,6 +11,11 @@
 
 #include "droidspace.h"
 
+#ifndef TMPFS_MAGIC
+#define TMPFS_MAGIC 0x01021994
+#endif
+
+
 /*
  * scan_host_gpu_gids()
  *
@@ -279,45 +284,148 @@ int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
  * Non-fatal: silently returns 0 if no X11 socket is found.
  *
  */
-int setup_x11_socket(void) {
-  const char *x11_source = NULL;
 
-  /* Detect platform and find X11 socket.
-   * NOTE: This function is called AFTER pivot_root, so we must use
-   * /.old_root to access the real host filesystem (via headers). */
-  if (is_android()) {
-    /* Android — check for Termux X11 */
-    ds_log("Checking for Termux X11 at %s...", DS_X11_PATH_TERMUX);
-    if (access(DS_X11_PATH_TERMUX, F_OK) == 0) {
-      x11_source = DS_X11_PATH_TERMUX;
-      ds_log("Found Termux X11 socket");
-    } else {
-      ds_warn("Termux X11 socket not found at default path");
-    }
-  } else {
-    /* Desktop Linux — access host /tmp via /.old_root */
-    if (access(DS_X11_PATH_DESKTOP, F_OK) == 0) {
-      x11_source = DS_X11_PATH_DESKTOP;
-      ds_log("Found Desktop X11 socket at %s", DS_X11_PATH_DESKTOP);
-    }
+/*
+ * stop_termux_if_running()
+ *
+ * Checks if Termux is running and aggressively stops it to prevent
+ * blocking during tmpfs mount.
+ */
+void stop_termux_if_running(void) {
+  struct stat st;
+  if (stat("/data/data/com.termux", &st) != 0) {
+    return; /* Termux not installed */
   }
 
-  if (!x11_source) {
-    ds_warn("X11 support skipped: No host X11 socket detected");
+  /* Check if Termux is actually running */
+  if (system("pidof com.termux >/dev/null 2>&1") != 0) {
+    return; /* Not running, nothing to do */
+  }
+
+  ds_log("Stopping Termux to prepare unified /tmp...");
+
+  /* Method 1: Use Android Activity Manager to stop app */
+  int ret = system("am force-stop com.termux 2>/dev/null");
+
+  /* Method 2: Fallback to pkill if am fails */
+  if (ret != 0) {
+    system("pkill -9 com.termux 2>/dev/null");
+  }
+
+  /* Give it a moment to die */
+  nanosleep(&(struct timespec){.tv_sec = 0, .tv_nsec = 500000000}, NULL);
+}
+
+/*
+ * setup_unified_tmpfs()
+ *
+ */
+int setup_unified_tmpfs(void) {
+  const char *termux_tmp = DS_TERMUX_TMP_DIR;
+  struct stat st;
+  struct statfs fs;
+
+  /* Check if Termux exists */
+  if (stat("/data/data/com.termux", &st) != 0) {
+    return 0; /* Non-fatal: Termux not installed */
+  }
+
+  /* Ensure tmp directory exists */
+  mkdir_p(termux_tmp, 0755);
+
+  /* Already mounted? Just ensure ownership is correct. */
+  if (statfs(termux_tmp, &fs) == 0 && fs.f_type == TMPFS_MAGIC) {
+    chown(termux_tmp, st.st_uid, st.st_gid);
+    chmod(termux_tmp, 01777);
     return 0;
   }
 
-  /* Ensure /tmp subdirectories exist in the container */
-  mkdir_p("/tmp", 01777);
-  mkdir_p(DS_X11_CONTAINER_DIR, 01777);
+  /* Detect Termux SELinux context (including categories) */
+  char context[256] = {0};
+  if (get_selinux_context("/data/data/com.termux", context, sizeof(context)) < 0) {
+    safe_strncpy(context, "u:object_r:app_data_file:s0", sizeof(context));
+  }
 
-  /* Bind mount the socket directory from host */
-  if (mount(x11_source, DS_X11_CONTAINER_DIR, NULL, MS_BIND | MS_REC, NULL) <
-      0) {
-    ds_warn("Failed to bind mount X11 socket: %s", strerror(errno));
+  /* Mount tmpfs with proper permissions and ownership */
+  char mount_opts[256];
+  snprintf(mount_opts, sizeof(mount_opts), "size=256M,mode=1777,uid=%d,gid=%d",
+           (int)st.st_uid, (int)st.st_gid);
+
+  if (mount("tmpfs", termux_tmp, "tmpfs", MS_NOSUID | MS_NODEV, mount_opts) != 0) {
+    ds_warn("Failed to create unified /tmp: %s", strerror(errno));
     return -1;
   }
-  ds_log("X11 socket directory bind-mounted successfully");
+
+  /* Explicitly apply SELinux context to the mount point */
+  if (set_selinux_context(termux_tmp, context) < 0) {
+    ds_warn("Failed to apply SELinux context to unified /tmp: %s",
+            strerror(errno));
+  }
+
+  return 0;
+}
+
+/*
+ * cleanup_unified_tmpfs()
+ *
+ */
+void cleanup_unified_tmpfs(void) {
+  struct statfs fs;
+
+  /* Only unmount if a tmpfs is actually present at the target path */
+  if (statfs(DS_TERMUX_TMP_DIR, &fs) == 0 && fs.f_type == TMPFS_MAGIC) {
+    umount2(DS_TERMUX_TMP_DIR, MNT_DETACH);
+  }
+}
+
+/*
+ * setup_x11_and_virgl_sockets()
+ *
+ */
+int setup_x11_and_virgl_sockets(struct ds_config *cfg) {
+  (void)cfg;
+
+  if (!is_android()) {
+    /* Desktop Linux path */
+    const char *x11_source = DS_X11_PATH_DESKTOP;
+    if (access(x11_source, F_OK) == 0) {
+      ds_log("Found Desktop X11 socket at %s", x11_source);
+      mkdir_p("/tmp", 01777);
+      mkdir_p(DS_X11_CONTAINER_DIR, 01777);
+      if (mount(x11_source, DS_X11_CONTAINER_DIR, NULL, MS_BIND | MS_REC, NULL) < 0) {
+        ds_warn("Failed to bind mount X11 socket: %s", strerror(errno));
+        return -1;
+      }
+      ds_log("X11 socket directory bind-mounted successfully");
+    } else {
+      ds_warn("X11 support skipped: No host X11 socket detected");
+    }
+    return 0;
+  }
+
+  /* Android path: bridge Termux /tmp into container's /tmp */
+  const char *bridge_source = DS_TERMUX_TMP_OLDROOT;  /* FIX: Use explicit macro */
+  const char *container_tmp = "/tmp";
+
+  /* Verify source exists */
+  if (access(bridge_source, F_OK) != 0) {
+    ds_warn("Termux not installed - X11/VirGL socket bridge unavailable");
+    return 0; /* Non-fatal */
+  }
+
+  ds_log("Bridging Termux and container for X11/VirGL sockets...");
+
+  /* Ensure container /tmp exists */
+  mkdir_p(container_tmp, 01777);
+
+  /* Bind mount entire /tmp (includes .X11-unix and .virgl_test) */
+  if (mount(bridge_source, container_tmp, NULL, MS_BIND, NULL) != 0) {
+    ds_warn("Failed to bridge /tmp sockets: %s", strerror(errno));
+    return 0; /* Non-fatal */
+  }
+
+  /* Ensure permissions are correct */
+  chmod(container_tmp, 01777);
 
   return 0;
 }
@@ -343,7 +451,7 @@ int setup_hardware_access(struct ds_config *cfg, gid_t *gpu_gids,
 
   /* 2. Mount X11 socket for GUI applications */
   if (cfg->hw_access || cfg->termux_x11)
-    setup_x11_socket();
+    setup_x11_and_virgl_sockets(cfg);
 
   return 0;
 }

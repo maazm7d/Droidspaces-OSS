@@ -89,7 +89,7 @@ int internal_boot(struct ds_config *cfg) {
   }
 
   /* 7. Pre-create standard directories in one loop to reduce syscalls */
-  const char *dirs_to_create[] = {".old_root", "proc", "sys", "run"};
+  const char *dirs_to_create[] = {".old_root", "proc", "sys", "run", "tmp"};
   int dir_creation_failed = 0;
   for (size_t i = 0; i < sizeof(dirs_to_create) / sizeof(dirs_to_create[0]);
        i++) {
@@ -207,6 +207,18 @@ int internal_boot(struct ds_config *cfg) {
   if (domount("tmpfs", "run", "tmpfs", MS_NOSUID | MS_NODEV, "mode=755") < 0) {
     ds_error("Failed to mount tmpfs at /run: %s", strerror(errno));
     return -1;
+  }
+
+  /* 12b. Setup /tmp */
+  if (!is_android()) {
+    /* Desktop Linux: mount fresh tmpfs for isolation */
+    if (domount("tmpfs", "tmp", "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") <
+        0) {
+      ds_warn("Failed to mount tmpfs at /tmp: %s", strerror(errno));
+    }
+  } else {
+    /* Android: /tmp will be handled by unified bridge after pivot_root */
+    mkdir_p("tmp", 01777);
   }
 
   /* 13. Bind-mount TTYs BEFORE pivot_root so we can still see /dev/pts/N
