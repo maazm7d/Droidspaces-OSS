@@ -83,7 +83,7 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
       rmdir(mount_point); /* best-effort */
     } else {
       /* Explicitly call unmount wrapper. It handles its own logging. */
-      unmount_rootfs_img(mount_point, 0);
+      unmount_rootfs_img(mount_point, cfg->foreground);
     }
   }
 
@@ -352,6 +352,7 @@ int start_rootfs(struct ds_config *cfg) {
   if (monitor_pid == 0) {
     /* MONITOR PROCESS */
     close(sync_pipe[0]);
+    sync_pipe[0] = -1;
     if (setsid() < 0 && errno != EPERM) {
       /* Fatal only if it's not EPERM (which means already leader) */
       ds_error("setsid failed: %s", strerror(errno));
@@ -408,6 +409,7 @@ int start_rootfs(struct ds_config *cfg) {
     /* Write child PID to sync pipe so parent knows it */
     write(sync_pipe[1], &init_pid, sizeof(pid_t));
     close(sync_pipe[1]);
+    sync_pipe[1] = -1;
 
     /* Ensure monitor is not sitting inside any mount point */
     chdir("/");
@@ -452,6 +454,7 @@ int start_rootfs(struct ds_config *cfg) {
     return -1;
   }
   close(sync_pipe[0]);
+  sync_pipe[0] = -1;
 
   ds_log("Container started with PID %d (Monitor: %d)", cfg->container_pid,
          monitor_pid);
@@ -633,7 +636,8 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   /* 5. Complete resource cleanup. */
   cleanup_container_resources(cfg, 0, skip_unmount, unkillable);
 
-  ds_log("Container '%s' stopped.", cfg->container_name);
+  if (!cfg->foreground)
+    ds_log("Container '%s' stopped.", cfg->container_name);
   return 0;
 }
 
