@@ -65,6 +65,7 @@ What makes Droidspaces unique is its **zero-dependency, native execution** on bo
 - [Installation](#installation)
 - [Usage](#usage)
 - [Additional Documentation](#additional-documentation)
+- [To-do](#todo)
 
 ---
 
@@ -260,6 +261,15 @@ For the list of devices and distributions verified by the community, see the [Te
 
 ---
 
+<a id="todo"></a>
+## TO-DO / Roadmap
+
+The following features are planned for future development. Contributions and Pull Requests are highly welcome!
+
+- [ ] **In-container Reboot Detection**: Implement a robust mechanism to detect and handle `reboot(2)` calls from within the container, allowing the monitor to re-fork a fresh initialization sequence autonomously.
+
+---
+
 ## License
 
 Droidspaces is licensed under the [GNU General Public License v3.0](./LICENSE).
@@ -273,3 +283,4 @@ Copyright (C) 2026 [ravindu644](https://github.com/ravindu644) and contributors.
 Contributions are welcome. Please open an issue or pull request on the [GitHub repository](https://github.com/ravindu644/Droidspaces-OSS).
 
 For questions or support, join the [Telegram channel](https://t.me/Droidspaces).
+
