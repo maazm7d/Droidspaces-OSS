@@ -110,7 +110,8 @@ sudo droidspaces --name=web,db,app stop
 |--------|-------|-------------|
 | `--foreground` | `-f` | Attach to the container console on start to see init logs. |
 | `--volatile` | `-V` | Ephemeral mode. Changes are stored in RAM and lost on exit. |
-| `--hw-access` | | Expose host hardware (GPU, USB, etc.). See [Safety Warning](Features.md#hardware-access-mode). |
+| `--hw-access` | `-H` | Expose host hardware (GPU, USB, etc.). Auto-detects GPU group IDs and creates matching groups inside the container. Mounts X11 socket for GUI apps (Termux X11 on Android, `/tmp/.X11-unix` on Linux). See [Safety Warning](Features.md#hardware-access-mode). |
+| `--termux-x11`| `-X` | Mount X11 socket for Termux-X11 display (Android only). |
 | `--enable-android-storage`| | Mount `/storage/emulated/0` (Android only). |
 | `--selinux-permissive` | | Set host SELinux to permissive for the container session. |
 

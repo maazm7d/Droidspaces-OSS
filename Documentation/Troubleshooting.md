@@ -270,6 +270,43 @@ In this mode, the rootfs is stored as a standalone ext4 image and loop-mounted a
 
 ---
 
+## GPU Permission Denied in Container
+
+**Symptoms:** `glxgears`, `vulkaninfo`, or other GPU applications fail with "Permission denied" when accessing `/dev/dri/*`, `/dev/mali*`, or `/dev/kgsl-3d0`.
+
+**Cause:** The container's root user is not a member of the GPU device's group.
+
+**Solution:**
+
+With `--hw-access` enabled, Droidspaces **automatically** creates GPU groups and adds root. If you still see errors:
+
+1. **Verify GPU groups were created:**
+   ```bash
+   droidspaces --name=mycontainer enter
+   cat /etc/group | grep gpu_
+   ```
+   You should see entries like `gpu_44:x:44:root`.
+
+2. **Check device permissions:**
+   ```bash
+   ls -la /dev/dri/ /dev/kgsl-3d0 /dev/mali0 2>/dev/null
+   ```
+   Note the group ownership GID.
+
+3. **Manual fallback (if auto-detection missed a device):**
+   ```bash
+   groupadd -g <GID> gpu_custom
+   usermod -aG gpu_custom root
+   ```
+
+4. **X11 not working:**
+   - Verify Termux X11 is running: `termux-x11 :0 &` (in Termux, outside container)
+   - **Enable X11 Support**: Ensure either `--hw-access` or the dedicated `--termux-x11` flag is used.
+   - Set `export DISPLAY=:0` inside the container
+   - Check socket exists: `ls -la /tmp/.X11-unix/`
+
+---
+
 ## Getting Help
 
 If your issue isn't listed here:

@@ -150,6 +150,45 @@ Droidspaces handles this with a "dynamic hole-punching" technique:
 droidspaces --name=gpu-test --rootfs=/path/to/rootfs --hw-access start
 ```
 
+### Automatic GPU Group Setup
+
+When `--hw-access` is enabled, Droidspaces automatically:
+
+1. **Scans host GPU devices** — Before `pivot_root`, it probes ~40 known GPU device paths (`/dev/dri/*`, `/dev/mali*`, `/dev/kgsl-3d0`, `/dev/nvidia*`, etc.) and collects their group IDs via `stat()`.
+2. **Creates matching groups** — After `pivot_root`, it appends entries like `gpu_<GID>:x:<GID>:root` to the container's `/etc/group`. The container's root user is automatically added to each group.
+3. **Idempotent restarts** — On container restart, existing groups are detected and skipped (no duplicate entries).
+
+This eliminates the need for manual `groupadd`/`usermod` commands inside the container.
+
+### X11 Socket Mounting
+
+For GUI application support, Droidspaces automatically bind-mounts the X11 socket directory:
+
+- **Android (Termux X11):** Detects and mounts `/data/data/com.termux/files/usr/tmp/.X11-unix`
+- **Desktop Linux:** Mounts `/tmp/.X11-unix` via `/proc/1/root/tmp/.X11-unix`
+
+> [!TIP]
+> X11 support can be enabled independently using the `--termux-x11` (`-X`) flag. This is the recommended way to use GUI applications on Android if you do not need full GPU/hardware access, as it preserves a higher level of isolation.
+
+> [!IMPORTANT]
+> Only the `.X11-unix` subdirectory is mounted — never the entire `/tmp`. Binding `/tmp` on encrypted Android devices causes "required key not available" errors due to FBE keyring conflicts.
+
+After starting the container, set `DISPLAY=:0` inside the container to use the X11 display.
+
+### Supported GPU Families
+
+| Family | Device Paths |
+|--------|-------------|
+| **DRI** (Intel, AMD, Mesa) | `/dev/dri/renderD128-130`, `/dev/dri/card0-2` |
+| **NVIDIA** (Proprietary) | `/dev/nvidia*`, `/dev/nvidia-uvm*`, `/dev/nvidia-caps/*` |
+| **ARM Mali** | `/dev/mali`, `/dev/mali0`, `/dev/mali1` |
+| **Qualcomm Adreno** | `/dev/kgsl-3d0`, `/dev/kgsl`, `/dev/genlock` |
+| **AMD Compute** | `/dev/kfd` |
+| **PowerVR** | `/dev/pvr_sync` |
+| **NVIDIA Tegra** | `/dev/nvhost-ctrl`, `/dev/nvhost-gpu`, `/dev/nvmap` |
+| **DMA Heaps** | `/dev/dma_heap/system`, `/dev/dma_heap/linux,cma`, `/dev/dma_heap/reserved`, `/dev/dma_heap/qcom,system` |
+| **Sync** | `/dev/sw_sync` |
+
 ---
 
 ## Custom Bind Mounts

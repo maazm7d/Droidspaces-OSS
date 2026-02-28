@@ -44,6 +44,7 @@ src/
 ├── console.c           epoll-based console I/O monitor loop
 ├── terminal.c          PTY allocation, /dev/console + /dev/ttyN setup
 ├── network.c           DNS, routing, hostname, IPv6 configuration
+├── hardware.c          GPU group auto-detection, X11 socket mounting
 ├── android.c           Android-specific: SELinux, optimizations, storage
 ├── environment.c       Environment variables, os-release parsing
 ├── utils.c             File I/O, UUID generation, firmware path mgmt
@@ -716,6 +717,26 @@ Droidspaces solves this by strictly adhering to the systemd Container Interface 
 4. **Result**: Systemd sees a RO `/sys` and correctly identifies the container environment, while the container processes retain full RW access to the hardware subsystems via the pinned sub-mounts.
 
 Additionally, `/dev/null` is bind-mounted over `/sys/class/tty/console/active` to mask host TTY discovery entirely.
+
+### 8.6 Hardware and X11 Support (v4.5.0+)
+
+When either `--hw-access` or the dedicated `--termux-x11` flag is enabled, Droidspaces performs environment-aware configuration for graphics support. This is implemented in `hardware.c` and integrated into `internal_boot()` at two critical points:
+
+**Pre-pivot_root — GPU GID Scanning:**
+If `--hw-access` is enabled, while the host's `/dev` is still accessible, `scan_host_gpu_gids()` probes ~40 known GPU device paths across all major GPU families (DRI, NVIDIA, Mali, Adreno, KFD, PowerVR, Tegra, DMA Heaps). For each device that exists, it collects the file's group ID via `stat()`. GID 0 (root) is skipped since root already has full access. Duplicate GIDs are de-duplicated.
+
+**Post-pivot_root — Group Creation & X11:**
+`setup_hardware_access()` is called after `pivot_root` and networking setup. It coordinates the hardware exposure:
+
+1. **GPU Groups**: If `--hw-access` is enabled, `setup_gpu_groups()` reads the container's `/etc/group`, checks for existing GIDs (idempotent on restart), and appends new entries like `gpu_<GID>:x:<GID>:root`. This ensures the container's root user has the correct group membership to access GPU devices without manual intervention.
+
+2. **X11 Socket**: If either `--hw-access` or `--termux-x11` is enabled, `setup_x11_socket()` performs platform-aware X11 socket mounting:
+   - **Android**: Checks for Termux X11 at `/data/data/com.termux/files/usr/tmp/.X11-unix`
+   - **Desktop Linux**: Uses `/proc/1/root/tmp/.X11-unix` to reach the host filesystem after `pivot_root`
+   - Only the `.X11-unix` subdirectory is mounted (never `/tmp`) to avoid FBE keyring conflicts on encrypted Android devices.
+   - The mount target is created with `0777` permissions to support Termux's non-root UID.
+
+All operations are non-fatal: failures produce warnings but don't prevent the container from booting.
 
 ---
 
