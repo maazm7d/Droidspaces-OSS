@@ -34,14 +34,14 @@
     <string name="container_count">%1$d ya container</string>
     <string name="containers_count">%1$d ya saray container</string>
 
-    <string name="droidspaces_checking">Droidspaces: Tsek-tseken...</string>
-    <string name="droidspaces_working">Droidspaces: Mantatrabaho</string>
-    <string name="droidspaces_update_available">Droidspaces: Walay update ya available</string>
-    <string name="droidspaces_not_installed">Droidspaces: Ag aka-install so Backend</string>
-    <string name="droidspaces_corrupted">Droidspaces: Corrupted so Backend</string>
-    <string name="droidspaces_unsupported">Droidspaces: Ag suportado</string>
-    <string name="droidspaces_module_missing">Droidspaces: Anggapo so Backend</string>
-    <string name="droidspaces_unknown">Droidspaces: Ag-amta</string>
+    <string name="backend_checking">Backend: Tsek-tseken...</string>
+    <string name="backend_installed">Backend: Nan-install</string>
+    <string name="backend_update_available">Backend: Walay update ya available</string>
+    <string name="backend_not_installed">Backend: Ag aka-install</string>
+    <string name="backend_corrupted">Backend: Corrupted</string>
+    <string name="backend_unsupported">Backend: Ag suportado</string>
+    <string name="backend_module_missing">Backend: Anggapo</string>
+    <string name="backend_unknown">Backend: Ag-amta</string>
     <string name="root_unavailable">Ag-available so root access.</string>
     <string name="grant_root_message">Ikdan na root access pian ituloy so pan-explore ed droidspaces !</string>
     <string name="version_label">Bersyon: %1$s</string>
@@ -170,7 +170,7 @@
     <string name="installing_module">I-i-install so Module</string>
     <string name="installing_droidspaces">I-i-install so Droidspaces</string>
     <string name="module_installed_success">Maong ya a-install so Magisk module</string>
-    <string name="backend_installed_success">Maong ya a-install so Droidspaces backend</string>
+    <string name="backend_installed_success">Maong ya a-install so backend</string>
     <string name="unknown_error">Walay ag-amta ya error</string>
     <string name="module_installation_failed">Ag a-install so module</string>
     <string name="binary_installation_failed">Ag a-install so binary</string>
@@ -239,7 +239,7 @@
     <string name="loading">Ilo-load...</string>
 
     <string name="backend_not_available">Ag available so Backend</string>
-    <string name="backend_not_available_description">Ag aka-install o corrupted so Droidspaces backend. I-install ni saya.</string>
+    <string name="backend_not_available_description">Ag aka-install o corrupted so backend. I-install ni saya.</string>
     <string name="root_access_not_available">Ag available so root access</string>
     <string name="root_access_not_available_description">Naka-disable yan pahina ta ag available so root access</string>
 

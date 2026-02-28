@@ -34,14 +34,14 @@
     <string name="container_count">%1$d a container</string>
     <string name="containers_count">%1$d a dagiti container</string>
 
-    <string name="droidspaces_checking">Droidspaces: Suksukimaten...</string>
-    <string name="droidspaces_working">Droidspaces: Agtartrabaho</string>
-    <string name="droidspaces_update_available">Droidspaces: Adda available nga update</string>
-    <string name="droidspaces_not_installed">Droidspaces: Saan a naka-install ti Backend</string>
-    <string name="droidspaces_corrupted">Droidspaces: Nadadael ti Backend</string>
-    <string name="droidspaces_unsupported">Droidspaces: Saan a suportado</string>
-    <string name="droidspaces_module_missing">Droidspaces: Awan ti Backend</string>
-    <string name="droidspaces_unknown">Droidspaces: Saan nga ammo</string>
+    <string name="backend_checking">Backend: Suksukimaten...</string>
+    <string name="backend_installed">Backend: Nakainstalar</string>
+    <string name="backend_update_available">Backend: Adda update nga available</string>
+    <string name="backend_not_installed">Backend: Saan a nakainstalar</string>
+    <string name="backend_corrupted">Backend: Corrupted</string>
+    <string name="backend_unsupported">Backend: Saan a suportado</string>
+    <string name="backend_module_missing">Backend: Kurang</string>
+    <string name="backend_unknown">Backend: Di ammo</string>
     <string name="root_unavailable">Saan nga available ti root access.</string>
     <string name="grant_root_message">Ikkan ti root access tapno ituloy ti panag-explore iti droidspaces !</string>
     <string name="version_label">Bersyon: %1$s</string>
@@ -170,7 +170,7 @@
     <string name="installing_module">In-install ti Module</string>
     <string name="installing_droidspaces">In-install ti Droidspaces</string>
     <string name="module_installed_success">Balligi a na-install ti Magisk module</string>
-    <string name="backend_installed_success">Balligi a na-install ti Droidspaces backend</string>
+    <string name="backend_installed_success">Napintas ti pannakainstalar ti backend</string>
     <string name="unknown_error">Adda napasamak a di ammo nga error</string>
     <string name="module_installation_failed">Napaay ti panag-install ti module</string>
     <string name="binary_installation_failed">Napaay ti panag-install ti binary</string>
@@ -239,7 +239,7 @@
     <string name="loading">Aglo-load...</string>
 
     <string name="backend_not_available">Saan nga available ti Backend</string>
-    <string name="backend_not_available_description">Saan a naka-install wenno corrupted ti Droidspaces backend. Pangaasi nga i-install nga umuna.</string>
+    <string name="backend_not_available_description">Saan a nakainstalar wenno corrupted ti backend. Pakainstalar yo nga umuna daytoy.</string>
     <string name="root_access_not_available">Saan nga available ti root access</string>
     <string name="root_access_not_available_description">Naka-disable daytoy a panid gapu ta awan ti root access</string>
 

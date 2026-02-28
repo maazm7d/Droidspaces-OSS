@@ -34,14 +34,14 @@
     <string name="container_count">%1$d container</string>
     <string name="containers_count">%1$d maga container</string>
 
-    <string name="droidspaces_checking">Droidspaces: Ta chequea...</string>
-    <string name="droidspaces_working">Droidspaces: Ta funciona</string>
-    <string name="droidspaces_update_available">Droidspaces: Tiene update disponible</string>
-    <string name="droidspaces_not_installed">Droidspaces: No hay instala el Backend</string>
-    <string name="droidspaces_corrupted">Droidspaces: Corrupted el Backend</string>
-    <string name="droidspaces_unsupported">Droidspaces: Hende suportao</string>
-    <string name="droidspaces_module_missing">Droidspaces: Ta falta el Backend</string>
-    <string name="droidspaces_unknown">Droidspaces: Hende sabe</string>
+    <string name="backend_checking">Backend: Ta chequea...</string>
+    <string name="backend_installed">Backend: Instalado</string>
+    <string name="backend_update_available">Backend: Tiene update disponible</string>
+    <string name="backend_not_installed">Backend: No instalado</string>
+    <string name="backend_corrupted">Backend: Corrupto</string>
+    <string name="backend_unsupported">Backend: No soportado</string>
+    <string name="backend_module_missing">Backend: Falta</string>
+    <string name="backend_unknown">Backend: No sabe</string>
     <string name="root_unavailable">Hende disponible el acceso root.</string>
     <string name="grant_root_message">Dale acceso root para continua explora el droidspaces !</string>
     <string name="version_label">Version: %1$s</string>
@@ -170,7 +170,7 @@
     <string name="installing_module">Ta instala el Module</string>
     <string name="installing_droidspaces">Ta instala el Droidspaces</string>
     <string name="module_installed_success">Ya instala el Magisk module con exito</string>
-    <string name="backend_installed_success">Ya instala el Droidspaces backend con exito</string>
+    <string name="backend_installed_success">Ya instala con exito el backend</string>
     <string name="unknown_error">Ocuri un error hende sabe</string>
     <string name="module_installation_failed">Fallo el instalacion del module</string>
     <string name="binary_installation_failed">Fallo el instalacion del binary</string>
@@ -239,7 +239,7 @@
     <string name="loading">Ta load...</string>
 
     <string name="backend_not_available">Backend hende disponible</string>
-    <string name="backend_not_available_description">El Droidspaces backend no hay instala o corrupted. Por favor instala anay.</string>
+    <string name="backend_not_available_description">El backend no hay instalado o corrupto. Por favor instala primero con este.</string>
     <string name="root_access_not_available">Acceso root hende disponible</string>
     <string name="root_access_not_available_description">Este pagina deshabilitao cay no hay acceso root</string>
 

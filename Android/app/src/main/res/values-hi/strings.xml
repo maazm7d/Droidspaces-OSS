@@ -39,14 +39,14 @@
     <string name="containers_count">%1$d कंटेनर</string>
 
     <!-- Droidspaces Status Card -->
-    <string name="droidspaces_checking">Droidspaces: जांच हो रही है...</string>
-    <string name="droidspaces_working">Droidspaces: कार्यरत</string>
-    <string name="droidspaces_update_available">Droidspaces: अपडेट उपलब्ध</string>
-    <string name="droidspaces_not_installed">Droidspaces: बैकएंड इंस्टॉल नहीं है</string>
-    <string name="droidspaces_corrupted">Droidspaces: बैकएंड भ्रष्ट है</string>
-    <string name="droidspaces_unsupported">Droidspaces: समर्थित नहीं</string>
-    <string name="droidspaces_module_missing">Droidspaces: बैकएंड अनुपस्थित</string>
-    <string name="droidspaces_unknown">Droidspaces: अज्ञात</string>
+    <string name="backend_checking">Backend: जांच हो रही है...</string>
+    <string name="backend_installed">Backend: स्थापित</string>
+    <string name="backend_update_available">Backend: अपडेट उपलब्ध है</string>
+    <string name="backend_not_installed">Backend: स्थापित नहीं है</string>
+    <string name="backend_corrupted">Backend: दूषित</string>
+    <string name="backend_unsupported">Backend: असमर्थित</string>
+    <string name="backend_module_missing">Backend: अनुपलब्ध</string>
+    <string name="backend_unknown">Backend: अज्ञात</string>
     <string name="root_unavailable">रूट एक्सेस उपलब्ध नहीं है।</string>
     <string name="grant_root_message">Droidspaces का उपयोग जारी रखने के लिए रूट एक्सेस दें!</string>
     <string name="version_label">संस्करण: %1$s</string>
@@ -183,7 +183,7 @@
     <string name="installing_module">मॉड्यूल इंस्टॉल किया जा रहा है</string>
     <string name="installing_droidspaces">Droidspaces इंस्टॉल किया जा रहा है</string>
     <string name="module_installed_success">Magisk मॉड्यूल सफलतापूर्वक इंस्टॉल हुआ</string>
-    <string name="backend_installed_success">Droidspaces बैकएंड सफलतापूर्वक इंस्टॉल हुआ</string>
+    <string name="backend_installed_success">Backend सफलतापूर्वक स्थापित हो गया</string>
     <string name="unknown_error">अज्ञात त्रुटि हुई</string>
     <string name="module_installation_failed">मॉड्यूल इंस्टॉलेशन विफल</string>
     <string name="binary_installation_failed">बाइनरी इंस्टॉलेशन विफल</string>
@@ -256,7 +256,7 @@
 
     <!-- Empty State -->
     <string name="backend_not_available">बैकएंड उपलब्ध नहीं है</string>
-    <string name="backend_not_available_description">Droidspaces बैकएंड इंस्टॉल नहीं है या भ्रष्ट है। कृपया पहले इसे इंस्टॉल करें।</string>
+    <string name="backend_not_available_description">Backend स्थापित नहीं है या दूषित है। कृपया इसे पहले स्थापित करें।</string>
     <string name="root_access_not_available">रूट एक्सेस उपलब्ध नहीं है</string>
     <string name="root_access_not_available_description">रूट एक्सेस उपलब्ध न होने के कारण यह पृष्ठ अक्षम है</string>
 

@@ -39,14 +39,14 @@
     <string name="containers_count">%1$d контейнеров</string>
 
     <!-- Droidspaces Status Card -->
-    <string name="droidspaces_checking">Droidspaces: Проверка...</string>
-    <string name="droidspaces_working">Droidspaces: Работает</string>
-    <string name="droidspaces_update_available">Droidspaces: Доступно обновление</string>
-    <string name="droidspaces_not_installed">Droidspaces: Бэкенд не установлен</string>
-    <string name="droidspaces_corrupted">Droidspaces: Бэкенд повреждён</string>
-    <string name="droidspaces_unsupported">Droidspaces: Не поддерживается</string>
-    <string name="droidspaces_module_missing">Droidspaces: Бэкенд отсутствует</string>
-    <string name="droidspaces_unknown">Droidspaces: Неизвестно</string>
+    <string name="backend_checking">Backend: Проверка...</string>
+    <string name="backend_installed">Backend: Установлен</string>
+    <string name="backend_update_available">Backend: Доступно обновление</string>
+    <string name="backend_not_installed">Backend: Не установлен</string>
+    <string name="backend_corrupted">Backend: Повреждён</string>
+    <string name="backend_unsupported">Backend: Не поддерживается</string>
+    <string name="backend_module_missing">Backend: Отсутствует</string>
+    <string name="backend_unknown">Backend: Неизвестно</string>
     <string name="root_unavailable">Root-доступ недоступен.</string>
     <string name="grant_root_message">Предоставьте root-доступ для продолжения работы с Droidspaces!</string>
     <string name="version_label">Версия: %1$s</string>
@@ -183,7 +183,7 @@
     <string name="installing_module">Установка модуля</string>
     <string name="installing_droidspaces">Установка Droidspaces</string>
     <string name="module_installed_success">Модуль Magisk успешно установлен</string>
-    <string name="backend_installed_success">Бэкенд Droidspaces успешно установлен</string>
+    <string name="backend_installed_success">Бэкенд успешно установлен</string>
     <string name="unknown_error">Произошла неизвестная ошибка</string>
     <string name="module_installation_failed">Не удалось установить модуль</string>
     <string name="binary_installation_failed">Не удалось установить бинарные файлы</string>
@@ -256,7 +256,7 @@
 
     <!-- Empty State -->
     <string name="backend_not_available">Бэкенд недоступен</string>
-    <string name="backend_not_available_description">Бэкенд Droidspaces не установлен или повреждён. Пожалуйста, установите его сначала.</string>
+    <string name="backend_not_available_description">Бэкенд не установлен или повреждён. Пожалуйста, установите его сначала.</string>
     <string name="root_access_not_available">Root-доступ недоступен</string>
     <string name="root_access_not_available_description">Эта страница отключена, так как root-доступ недоступен</string>
 

@@ -34,14 +34,14 @@
     <string name="container_count">%1$d ka container</string>
     <string name="containers_count">%1$d ka mga container</string>
 
-    <string name="droidspaces_checking">Droidspaces: Gisusi...</string>
-    <string name="droidspaces_working">Droidspaces: Nagtrabaho</string>
-    <string name="droidspaces_update_available">Droidspaces: Adunay update</string>
-    <string name="droidspaces_not_installed">Droidspaces: Wala ma-install ang Backend</string>
-    <string name="droidspaces_corrupted">Droidspaces: Nadaot ang Backend</string>
-    <string name="droidspaces_unsupported">Droidspaces: Wala gisuportahan</string>
-    <string name="droidspaces_module_missing">Droidspaces: Nawala ang Backend</string>
-    <string name="droidspaces_unknown">Droidspaces: Wala mahibal-an</string>
+    <string name="backend_checking">Backend: Gisusi...</string>
+    <string name="backend_installed">Backend: Naka-install</string>
+    <string name="backend_update_available">Backend: Nay update nga available</string>
+    <string name="backend_not_installed">Backend: Wala naka-install</string>
+    <string name="backend_corrupted">Backend: Corrupted</string>
+    <string name="backend_unsupported">Backend: Wala gisuportahan</string>
+    <string name="backend_module_missing">Backend: Nawala</string>
+    <string name="backend_unknown">Backend: Ambot</string>
     <string name="root_unavailable">Dili magamit ang root access.</string>
     <string name="grant_root_message">Hatagi og root access aron magpadayon sa pagsuhid sa droidspaces !</string>
     <string name="version_label">Bersyon: %1$s</string>
@@ -170,7 +170,7 @@
     <string name="installing_module">Gi-install ang Module</string>
     <string name="installing_droidspaces">Gi-install ang Droidspaces</string>
     <string name="module_installed_success">Nagmalampuson ang pag-install sa Magisk module</string>
-    <string name="backend_installed_success">Nagmalampuson ang pag-install sa Droidspaces backend</string>
+    <string name="backend_installed_success">Malampuson nga na-install ang backend</string>
     <string name="unknown_error">Nahitabo ang wala mailhi nga error</string>
     <string name="module_installation_failed">Napakyas ang pag-install sa module</string>
     <string name="binary_installation_failed">Napakyas ang pag-install sa binary</string>
@@ -239,7 +239,7 @@
     <string name="loading">Nag-load...</string>
 
     <string name="backend_not_available">Dili magamit ang Backend</string>
-    <string name="backend_not_available_description">Ang Droidspaces backend wala ma-install o nadaot. Palihug i-install kini una.</string>
+    <string name="backend_not_available_description">Ang backend wala naka-install o na-corrupt. Palihug i-install una kini.</string>
     <string name="root_access_not_available">Dili magamit ang root access</string>
     <string name="root_access_not_available_description">Kini nga panid naka-disable tungod kay dili magamit ang root access</string>
 

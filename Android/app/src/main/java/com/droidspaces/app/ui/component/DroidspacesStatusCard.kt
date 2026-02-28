@@ -157,14 +157,14 @@ fun DroidspacesStatusCard(
                 Text(
                     text = when {
                         !isRootAvailable -> context.getString(R.string.root_unavailable)
-                        isChecking -> context.getString(R.string.droidspaces_checking)
-                        status == DroidspacesStatus.Working -> context.getString(R.string.droidspaces_working)
-                        status == DroidspacesStatus.UpdateAvailable -> context.getString(R.string.droidspaces_update_available)
-                        status == DroidspacesStatus.NotInstalled -> context.getString(R.string.droidspaces_not_installed)
-                        status == DroidspacesStatus.Corrupted -> context.getString(R.string.droidspaces_corrupted)
-                        status == DroidspacesStatus.Unsupported -> context.getString(R.string.droidspaces_unsupported)
-                        status == DroidspacesStatus.ModuleMissing -> context.getString(R.string.droidspaces_module_missing)
-                        else -> context.getString(R.string.droidspaces_unknown)
+                        isChecking -> context.getString(R.string.backend_checking)
+                        status == DroidspacesStatus.Working -> context.getString(R.string.backend_installed)
+                        status == DroidspacesStatus.UpdateAvailable -> context.getString(R.string.backend_update_available)
+                        status == DroidspacesStatus.NotInstalled -> context.getString(R.string.backend_not_installed)
+                        status == DroidspacesStatus.Corrupted -> context.getString(R.string.backend_corrupted)
+                        status == DroidspacesStatus.Unsupported -> context.getString(R.string.backend_unsupported)
+                        status == DroidspacesStatus.ModuleMissing -> context.getString(R.string.backend_module_missing)
+                        else -> context.getString(R.string.backend_unknown)
                     },
                     style = MaterialTheme.typography.titleMedium,
                     color = when {

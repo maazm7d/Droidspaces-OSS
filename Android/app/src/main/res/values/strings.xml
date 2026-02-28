@@ -41,15 +41,15 @@
     <string name="container_count">%1$d container</string>
     <string name="containers_count">%1$d containers</string>
 
-    <!-- Droidspaces Status Card -->
-    <string name="droidspaces_checking">Droidspaces: Checking...</string>
-    <string name="droidspaces_working">Droidspaces: Working</string>
-    <string name="droidspaces_update_available">Droidspaces: Update available</string>
-    <string name="droidspaces_not_installed">Droidspaces: Backend is not installed</string>
-    <string name="droidspaces_corrupted">Droidspaces: Backend corrupted</string>
-    <string name="droidspaces_unsupported">Droidspaces: Unsupported</string>
-    <string name="droidspaces_module_missing">Droidspaces: Backend missing</string>
-    <string name="droidspaces_unknown">Droidspaces: Unknown</string>
+    <!-- Backend Status Card -->
+    <string name="backend_checking">Backend: Checking...</string>
+    <string name="backend_installed">Backend: Installed</string>
+    <string name="backend_update_available">Backend: Update available</string>
+    <string name="backend_not_installed">Backend: Not installed</string>
+    <string name="backend_corrupted">Backend: Corrupted</string>
+    <string name="backend_unsupported">Backend: Unsupported</string>
+    <string name="backend_module_missing">Backend: Missing</string>
+    <string name="backend_unknown">Backend: Unknown</string>
     <string name="root_unavailable">Root access is unavailable.</string>
     <string name="grant_root_message">Grant root access to continue exploring droidspaces !</string>
     <string name="version_label">Version: %1$s</string>

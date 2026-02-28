@@ -39,14 +39,14 @@
     <string name="containers_count">%1$d conteneurs</string>
 
     <!-- Droidspaces Status Card -->
-    <string name="droidspaces_checking">Droidspaces : Vérification…</string>
-    <string name="droidspaces_working">Droidspaces : Fonctionne</string>
-    <string name="droidspaces_update_available">Droidspaces : Mise à jour disponible</string>
-    <string name="droidspaces_not_installed">Droidspaces : Backend non installé</string>
-    <string name="droidspaces_corrupted">Droidspaces : Backend corrompu</string>
-    <string name="droidspaces_unsupported">Droidspaces : Non pris en charge</string>
-    <string name="droidspaces_module_missing">Droidspaces : Backend manquant</string>
-    <string name="droidspaces_unknown">Droidspaces : Inconnu</string>
+    <string name="backend_checking">Backend : Vérification…</string>
+    <string name="backend_installed">Backend : Installé</string>
+    <string name="backend_update_available">Backend : Mise à jour disponible</string>
+    <string name="backend_not_installed">Backend : Pas installé</string>
+    <string name="backend_corrupted">Backend : Corrompu</string>
+    <string name="backend_unsupported">Backend : Non supporté</string>
+    <string name="backend_module_missing">Backend : Manquant</string>
+    <string name="backend_unknown">Backend : Inconnu</string>
     <string name="root_unavailable">L\'accès root n\'est pas disponible.</string>
     <string name="grant_root_message">Accordez l\'accès root pour continuer à explorer Droidspaces !</string>
     <string name="version_label">Version : %1$s</string>
@@ -183,7 +183,7 @@
     <string name="installing_module">Installation du module</string>
     <string name="installing_droidspaces">Installation de Droidspaces</string>
     <string name="module_installed_success">Module Magisk installé avec succès</string>
-    <string name="backend_installed_success">Backend Droidspaces installé avec succès</string>
+    <string name="backend_installed_success">Le backend a été installé avec succès</string>
     <string name="unknown_error">Une erreur inconnue est survenue</string>
     <string name="module_installation_failed">Échec de l\'installation du module</string>
     <string name="binary_installation_failed">Échec de l\'installation du binaire</string>
@@ -256,7 +256,7 @@
 
     <!-- Empty State -->
     <string name="backend_not_available">Backend non disponible</string>
-    <string name="backend_not_available_description">Le backend Droidspaces n\'est pas installé ou est corrompu. Veuillez l\'installer d\'abord.</string>
+    <string name="backend_not_available_description">Le backend n’est pas installé ou est corrompu. Veuillez l’installer d’abord.</string>
     <string name="root_access_not_available">Accès root non disponible</string>
     <string name="root_access_not_available_description">Cette page est désactivée car l\'accès root n\'est pas disponible</string>
 
