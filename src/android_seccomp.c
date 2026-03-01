@@ -11,6 +11,7 @@
 #include <linux/seccomp.h>
 #include <stddef.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 
 /* ---------------------------------------------------------------------------
  * Android System Call Filtering (Seccomp)
@@ -27,22 +28,25 @@
  * kernel deadlock in grab_super() when systemd services try to mount /proc.
  *
  * New Logic:
- * 1. Modern kernels (5.0+) are safe -> No filtering.
- * 2. Non-systemd containers (Alpine, etc.) are safe -> No filtering.
- * 3. Systemd containers on legacy kernels -> Apply the shield to block
- *    namespace creation (falling back to host namespaces to avoid deadlock).
+ * 1. reboot(2) is always trapped (for in-container reboot handling).
+ * 2. Keyring syscalls are always filtered (Android compatibility).
+ * 3. Namespace filtering is only applied for systemd containers on legacy kernels (< 5.0).
  */
+
+/* Portable reboot syscall definition */
+#ifndef __NR_reboot
+# ifdef SYS_reboot
+#  define __NR_reboot SYS_reboot
+# else
+#  error "reboot syscall number not defined on this architecture"
+# endif
+#endif
+
 int android_seccomp_setup(int is_systemd) {
   int major = 0, minor = 0;
-  if (get_kernel_version(&major, &minor) < 0)
-    return -1;
+  get_kernel_version(&major, &minor);   /* ignore error, assume modern */
 
-  if (major >= 5)
-    return 0;
-
-  ds_log("Legacy kernel (%d.%d) detected: Applying Android compatibility "
-         "shield...",
-         major, minor);
+  ds_log("Applying seccomp filter (reboot trap always active)...");
 
   /* Namespace flags to filter on legacy kernels (only for systemd) */
   const uint32_t ns_mask = 0x7E020000;
@@ -66,7 +70,11 @@ int android_seccomp_setup(int is_systemd) {
       /* [2] Load syscall number */
       BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 
-      /* [3] Filter Keyring Operations (ENOSYS) */
+      /* [3] Trap reboot(2) */
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_reboot, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+
+      /* [4] Filter Keyring Operations (ENOSYS) */
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_keyctl, 0, 1),
       BPF_STMT(BPF_RET | BPF_K,
                SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)),
@@ -77,23 +85,23 @@ int android_seccomp_setup(int is_systemd) {
       BPF_STMT(BPF_RET | BPF_K,
                SECCOMP_RET_ERRNO | (ENOSYS & SECCOMP_RET_DATA)),
 
-      /* [4] Conditional Jump for Namespace Filtering (Systemd only)
-       * If not systemd, jump over the next 5 instructions (the namespace
-       * filter).
+      /* [5] Conditional Jump for Namespace Filtering (Systemd only on legacy kernels)
+       * If not systemd OR kernel >= 5.0, jump over the next 5 instructions.
        */
-      BPF_JUMP(BPF_JMP | BPF_JA, (uint16_t)(is_systemd ? 0 : 5), 0, 0),
+      BPF_JUMP(BPF_JMP | BPF_JA,
+               (uint16_t)((is_systemd && major < 5) ? 0 : 5), 0, 0),
 
-      /* [5] Filter Sandboxing/Namespaces (EPERM if mask matches) */
+      /* [6] Filter Sandboxing/Namespaces (EPERM if mask matches) */
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unshare, 1, 0),
       BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_clone, 0, 3),
 
-      /* [5] Flag Check for unshare/clone */
+      /* Flag Check for unshare/clone */
       BPF_STMT(BPF_LD | BPF_W | BPF_ABS,
                offsetof(struct seccomp_data, args[0])),
       BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K, ns_mask, 0, 1),
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
 
-      /* [6] Default: Allow */
+      /* [7] Default: Allow */
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
   };
 
