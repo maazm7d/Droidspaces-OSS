@@ -107,6 +107,13 @@ fun TerminalConsole(
             }
     }
 
+    // Reset scroller when a new operation starts
+    LaunchedEffect(isProcessing) {
+        if (isProcessing) {
+            userScrolledUp = false
+        }
+    }
+
     // isProcessing intentionally excluded — it was cancelling in-flight animations.
     // logs.size handles new lines; maxValue handles layout settling after measurement.
     LaunchedEffect(logs.size, verticalScrollState.maxValue) {
