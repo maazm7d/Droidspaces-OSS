@@ -7,6 +7,12 @@
 
 #include "droidspace.h"
 
+/* Temporary debug logging for monitor exit status */
+#define DS_DEBUG_LOG(...) do { \
+    FILE *f = fopen("/data/local/tmp/ds-monitor.log", "a"); \
+    if (f) { fprintf(f, __VA_ARGS__); fclose(f); } \
+} while(0)
+
 /* ---------------------------------------------------------------------------
  * Cleanup
  * ---------------------------------------------------------------------------*/
@@ -554,6 +560,9 @@ int start_rootfs(struct ds_config *cfg) {
         while (waitpid(init_pid, &status, 0) < 0 && errno == EINTR)
           ;
       }
+
+      DS_DEBUG_LOG("init pid %d exited: status=%d, WIFEXITED=%d, WEXITSTATUS=%d, WIFSIGNALED=%d, WTERMSIG=%d\n",
+          init_pid, status, WIFEXITED(status), WEXITSTATUS(status), WIFSIGNALED(status), WTERMSIG(status));
 
       /* Check for reboot exit */
       if (WIFEXITED(status) && WEXITSTATUS(status) == DS_REBOOT_EXIT) {
