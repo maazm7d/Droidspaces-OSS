@@ -12,10 +12,13 @@ static void handle_sigsys(int sig, siginfo_t *info, void *ucontext) {
   (void)sig;
   (void)ucontext;
 
-  if (info->si_code == SYS_SECCOMP && info->si_syscall == __NR_reboot) {
+  if (info && info->si_code == SYS_SECCOMP &&
+      info->si_syscall == __NR_reboot) {
     _exit(DS_REBOOT_EXIT);
   }
-  /* For any other SIGSYS, ignore (should not happen) */
+
+  /* Unexpected SIGSYS — fail hard */
+  _exit(128 + SIGSYS);
 }
 
 static void setup_sigsys_handler(void) {
