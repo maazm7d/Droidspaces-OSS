@@ -75,10 +75,12 @@ int internal_boot(struct ds_config *cfg) {
    * that triggers VFS deadlocks in grab_super(). */
   if (is_android()) {
     int is_systemd = is_systemd_rootfs(cfg->rootfs_path);
-    android_seccomp_setup(is_systemd);
 
-    /* Install SIGSYS handler for reboot detection */
+    /* Install SIGSYS handler FIRST */
     setup_sigsys_handler();
+
+    /* Then enable seccomp */
+    android_seccomp_setup(is_systemd);
   }
 
   /* 3. Setup volatile overlay INSIDE the container's mount namespace.
