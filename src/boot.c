@@ -7,6 +7,30 @@
 
 #include "droidspace.h"
 
+/* --- Reboot detection: SIGSYS handler --- */
+static void handle_sigsys(int sig, siginfo_t *info, void *ucontext) {
+  (void)sig;
+  (void)ucontext;
+
+  if (info->si_code == SYS_SECCOMP && info->si_syscall == __NR_reboot) {
+    _exit(DS_REBOOT_EXIT);
+  }
+  /* For any other SIGSYS, ignore (should not happen) */
+}
+
+static void setup_sigsys_handler(void) {
+  struct sigaction sa = {
+      .sa_sigaction = handle_sigsys,
+      .sa_flags = SA_SIGINFO | SA_RESTART,
+  };
+
+  sigemptyset(&sa.sa_mask);
+
+  if (sigaction(SIGSYS, &sa, NULL) < 0) {
+    ds_warn("Failed to install SIGSYS handler: %s", strerror(errno));
+  }
+}
+
 int internal_boot(struct ds_config *cfg) {
   /* Defensive check: ensure configuration is valid */
   if (!cfg) {
@@ -52,6 +76,9 @@ int internal_boot(struct ds_config *cfg) {
   if (is_android()) {
     int is_systemd = is_systemd_rootfs(cfg->rootfs_path);
     android_seccomp_setup(is_systemd);
+
+    /* Install SIGSYS handler for reboot detection */
+    setup_sigsys_handler();
   }
 
   /* 3. Setup volatile overlay INSIDE the container's mount namespace.
