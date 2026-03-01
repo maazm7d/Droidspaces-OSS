@@ -127,6 +127,9 @@
 #define C_DIM "\033[2m"
 #define C_BOLD "\033[1m"
 
+/* exit code when container requests reboot */
+#define DS_REBOOT_EXIT 42
+
 /* ---------------------------------------------------------------------------
  * Logging macros
  * ---------------------------------------------------------------------------*/
