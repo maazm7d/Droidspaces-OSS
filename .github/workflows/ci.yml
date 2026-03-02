@@ -127,7 +127,7 @@ jobs:
   release:
     name: Create GitHub Release
     needs: [android, backend]
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name != '' && github.event.inputs.tag_name != 'test'
     runs-on: ubuntu-latest
     permissions:
       contents: write
