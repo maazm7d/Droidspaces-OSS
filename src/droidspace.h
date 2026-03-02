@@ -116,6 +116,7 @@
 #define DS_EXT_PID ".pid"
 #define DS_EXT_MOUNT ".mount"
 #define DS_EXT_RESTART ".restart"
+#define DS_EXT_LOCK ".ds_monitor.lock"
 
 /* Signals */
 #define DS_SIG_STOP (SIGRTMIN + 3)

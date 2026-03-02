@@ -14,7 +14,11 @@
 /* Build a restart marker path from a container name.
  * Returns the path in 'buf'. Safe against format-truncation. */
 static void restart_marker_path(const char *name, char *buf, size_t size) {
-  snprintf(buf, size, "%.2048s/%.256s.restart", get_pids_dir(), name);
+  snprintf(buf, size, "%.2048s/%.256s" DS_EXT_RESTART, get_pids_dir(), name);
+}
+
+static void monitor_lock_path(const char *name, char *buf, size_t size) {
+  snprintf(buf, size, "%.2048s/%.256s" DS_EXT_LOCK, get_pids_dir(), name);
 }
 
 static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
@@ -568,6 +572,19 @@ int start_rootfs(struct ds_config *cfg) {
       if (cfg->foreground) {
         ds_log_silent = 1;
       }
+
+      /* ── Monitor Lock Override ──
+       * If the "Glorious" Monitor Lock exists, it means a manual stop/restart
+       * command is in progress. We MUST abort the internal reboot loop to
+       * avoid racing with the manual cleanup. */
+      char lock_marker[PATH_MAX];
+      monitor_lock_path(cfg->container_name, lock_marker, sizeof(lock_marker));
+      if (access(lock_marker, F_OK) == 0) {
+        ds_log("Monitor Lock detected during reboot — aborting internal reboot "
+               "cycle");
+        goto monitor_exit;
+      }
+
       goto reboot_loop;
     }
 
@@ -593,6 +610,12 @@ int start_rootfs(struct ds_config *cfg) {
     free_config_env_vars(cfg);
 
     _exit(WIFEXITED(status) ? WEXITSTATUS(status) : 0);
+
+  monitor_exit:
+    /* Final cleanup for monitor before exit if needed */
+    free_config_binds(cfg);
+    free_config_env_vars(cfg);
+    _exit(0);
   }
 
   /* PARENT PROCESS */
@@ -717,9 +740,16 @@ cleanup:
 }
 
 int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
+  char lock_marker[PATH_MAX];
+  monitor_lock_path(cfg->container_name, lock_marker, sizeof(lock_marker));
+
+  /* Acquire "Glorious" Monitor Lock */
+  write_file_atomic(lock_marker, "1");
+
   pid_t pid;
   if (check_status(cfg, &pid) < 0) {
-    return -1; /* Container not running — signal failure to caller */
+    unlink(lock_marker); /* Release lock on container-not-running failure */
+    return -1;
   }
 
   ds_log("Stopping container '%s' (PID %d)...", cfg->container_name, pid);
@@ -804,6 +834,9 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
 
   /* 5. Complete resource cleanup. */
   cleanup_container_resources(cfg, 0, skip_unmount, unkillable);
+
+  /* Release lock */
+  unlink(lock_marker);
 
   if (!cfg->foreground)
     ds_log("Container '%s' stopped.", cfg->container_name);
