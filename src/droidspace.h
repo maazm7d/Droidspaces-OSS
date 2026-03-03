@@ -76,6 +76,7 @@
 #define DS_WORKSPACE_ANDROID "/data/local/Droidspaces"
 #define DS_WORKSPACE_LINUX "/var/lib/Droidspaces"
 #define DS_PIDS_SUBDIR "Pids"
+#define DS_LOGS_SUBDIR "Logs"
 #define DS_IMG_MOUNT_ROOT_UNIVERSAL "/mnt/Droidspaces"
 #define DS_MAX_MOUNT_TRIES 1024
 #define DS_BIND_INITIAL_CAP 4
@@ -379,6 +380,7 @@ const char *get_workspace_dir(void);
 const char *get_pids_dir(void);
 int ensure_workspace(void);
 int generate_container_name(const char *rootfs_path, char *name, size_t size);
+int get_container_log_path(const char *name, char *buf, size_t size);
 int find_available_name(const char *base_name, char *final_name, size_t size);
 int resolve_pidfile_from_name(const char *name, char *pidfile, size_t size);
 int auto_resolve_pidfile(struct ds_config *cfg);

@@ -11,6 +11,30 @@
  * Cleanup
  * ---------------------------------------------------------------------------*/
 
+static void write_monitor_debug_log(const char *name, const char *fmt, ...) {
+  char path[PATH_MAX];
+  if (get_container_log_path(name, path, sizeof(path)) < 0)
+    return;
+
+  FILE *f = fopen(path, "ae");
+  if (!f)
+    return;
+
+  /* Basic timestamp */
+  time_t now = time(NULL);
+  struct tm *tm_info = localtime(&now);
+  char timestamp[64];
+  strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
+
+  fprintf(f, "[%s] [ds-monitor] ", timestamp);
+  va_list args;
+  va_start(args, fmt);
+  vfprintf(f, fmt, args);
+  va_end(args);
+  fprintf(f, "\n");
+  fclose(f);
+}
+
 static void monitor_lock_path(const char *name, char *buf, size_t size) {
   snprintf(buf, size, "%.2048s/%.256s" DS_EXT_LOCK, get_pids_dir(), name);
 }
@@ -471,6 +495,18 @@ int start_rootfs(struct ds_config *cfg) {
       while (waitpid(init_pid, &init_status, 0) < 0 && errno == EINTR)
         ;
 
+      /* Log the exact status of init before exiting */
+      if (WIFEXITED(init_status)) {
+        write_monitor_debug_log(cfg->container_name,
+                                "Init (PID 1) EXITED with code: %d",
+                                WEXITSTATUS(init_status));
+      } else if (WIFSIGNALED(init_status)) {
+        int sig = WTERMSIG(init_status);
+        write_monitor_debug_log(cfg->container_name,
+                                "Init (PID 1) KILLED by signal: %d (%s)", sig,
+                                strsignal(sig));
+      }
+
       /* Convert kernel signal to exit code:
        * SIGHUP from reboot(RESTART) → DS_REBOOT_EXIT (249)
        * Everything else → pass through as-is */
@@ -510,6 +546,26 @@ int start_rootfs(struct ds_config *cfg) {
     int status;
     while (waitpid(mid_pid, &status, 0) < 0 && errno == EINTR)
       ;
+
+    /* Log what the monitor "saw" from the intermediate process */
+    if (WIFEXITED(status)) {
+      int code = WEXITSTATUS(status);
+      if (code == DS_REBOOT_EXIT) {
+        write_monitor_debug_log(cfg->container_name,
+                                "Detected internal REBOOT (intermediate-exit: "
+                                "%d, init-sig: SIGHUP)",
+                                code);
+      } else {
+        write_monitor_debug_log(
+            cfg->container_name,
+            "Detected container SHUTDOWN (intermediate-exit: %d)", code);
+      }
+    } else if (WIFSIGNALED(status)) {
+      int sig = WTERMSIG(status);
+      write_monitor_debug_log(cfg->container_name,
+                              "Intermediate process KILLED by signal: %d (%s)",
+                              sig, strsignal(sig));
+    }
 
     /* ── Reboot detection (exit code only — zero signal ambiguity) ── */
     if (WIFEXITED(status) && WEXITSTATUS(status) == DS_REBOOT_EXIT) {

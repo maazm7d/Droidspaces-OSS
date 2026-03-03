@@ -23,8 +23,13 @@ const char *get_pids_dir(void) {
 }
 
 int ensure_workspace(void) {
+  char path[PATH_MAX];
   mkdir(get_workspace_dir(), 0755);
   mkdir(get_pids_dir(), 0755);
+
+  /* Ensure base Logs directory exists */
+  snprintf(path, sizeof(path), "%s/%s", get_workspace_dir(), DS_LOGS_SUBDIR);
+  mkdir(path, 0755);
 
   /* Also ensure /data/local/Droidspaces/mounts on Android */
   if (is_android()) {
@@ -34,6 +39,15 @@ int ensure_workspace(void) {
     mkdir(mounts_path, 0755);
   }
 
+  return 0;
+}
+
+int get_container_log_path(const char *name, char *buf, size_t size) {
+  if (!name || !name[0])
+    return -1;
+  snprintf(buf, size, "%s/%s/%s", get_workspace_dir(), DS_LOGS_SUBDIR, name);
+  mkdir(buf, 0755); /* Ensure container-specific log dir exists */
+  strncat(buf, "/log", size - strlen(buf) - 1);
   return 0;
 }
 
