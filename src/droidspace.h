@@ -115,7 +115,6 @@
 /* File Extensions */
 #define DS_EXT_PID ".pid"
 #define DS_EXT_MOUNT ".mount"
-#define DS_EXT_RESTART ".restart"
 #define DS_EXT_LOCK ".ds_monitor.lock"
 
 /* Signals */

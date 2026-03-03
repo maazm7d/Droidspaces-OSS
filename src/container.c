@@ -11,12 +11,6 @@
  * Cleanup
  * ---------------------------------------------------------------------------*/
 
-/* Build a restart marker path from a container name.
- * Returns the path in 'buf'. Safe against format-truncation. */
-static void restart_marker_path(const char *name, char *buf, size_t size) {
-  snprintf(buf, size, "%.2048s/%.256s" DS_EXT_RESTART, get_pids_dir(), name);
-}
-
 static void monitor_lock_path(const char *name, char *buf, size_t size) {
   snprintf(buf, size, "%.2048s/%.256s" DS_EXT_LOCK, get_pids_dir(), name);
 }
@@ -103,13 +97,7 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
     if (global_pidfile[0] && strcmp(cfg->pidfile, global_pidfile) != 0)
       unlink(global_pidfile);
 
-    /* Also clean up any stale restart marker (edge case: restart was
-     * attempted but the new start never consumed the marker). */
-    if (cfg->container_name[0]) {
-      char marker[PATH_MAX];
-      restart_marker_path(cfg->container_name, marker, sizeof(marker));
-      unlink(marker); /* ignore errors — may not exist */
-    }
+    /* Stale lock cleanup is handled by start_rootfs or monitor exit. */
   }
 }
 
@@ -167,28 +155,17 @@ int start_rootfs(struct ds_config *cfg) {
    *    resolution or workspace setup, using the restart marker and
    *    .mount sidecar to detect a preserved mount from stop(skip_unmount). */
   int restart_reuse = 0;
+  char lock_marker[PATH_MAX] = {0};
 
-  /* If this is NOT an image-based container, any restart marker is a leak.
-   * Unlink it immediately to prevent the monitor from skipping cleanup. */
-  if (cfg->container_name[0] && cfg->rootfs_img_path[0] == '\0') {
-    char marker[PATH_MAX];
-    restart_marker_path(cfg->container_name, marker, sizeof(marker));
-    if (access(marker, F_OK) == 0) {
-      unlink(marker);
-    }
+  if (cfg->container_name[0]) {
+    monitor_lock_path(cfg->container_name, lock_marker, sizeof(lock_marker));
   }
 
   if (cfg->container_name[0] && cfg->rootfs_img_path[0]) {
-    /* Build restart marker path */
-    char restart_marker[PATH_MAX];
-    restart_marker_path(cfg->container_name, restart_marker,
-                        sizeof(restart_marker));
+    if (lock_marker[0] && access(lock_marker, F_OK) == 0) {
+      /* Lock present — try to reuse existing mount (Restart handoff) */
 
-    if (access(restart_marker, F_OK) == 0) {
-      /* Restart marker present — try to reuse existing mount */
-      unlink(restart_marker); /* consume the marker */
-
-      /* Resolve pidfile so we can read .mount sidecar */
+      /* Resolve pidfile early so we can read .mount sidecar */
       if (cfg->pidfile[0] == '\0')
         resolve_pidfile_from_name(cfg->container_name, cfg->pidfile,
                                   sizeof(cfg->pidfile));
@@ -206,7 +183,7 @@ int start_rootfs(struct ds_config *cfg) {
                      sizeof(cfg->img_mount_point));
         restart_reuse = 1;
       } else {
-        ds_warn("Restart marker found but mount not active, doing fresh mount");
+        ds_warn("Monitor lock found but mount not active, doing fresh mount");
       }
     }
   }
@@ -588,7 +565,7 @@ int start_rootfs(struct ds_config *cfg) {
        * If the "Glorious" Monitor Lock exists, it means a manual stop/restart
        * command is in progress. We MUST abort the internal reboot loop to
        * avoid racing with the manual cleanup. */
-      char lock_marker[PATH_MAX];
+      /* Reuse the lock_marker from the parent scope */
       monitor_lock_path(cfg->container_name, lock_marker, sizeof(lock_marker));
       if (access(lock_marker, F_OK) == 0) {
         ds_log("Monitor Lock detected during reboot — aborting internal reboot "
@@ -599,22 +576,17 @@ int start_rootfs(struct ds_config *cfg) {
       goto reboot_loop;
     }
 
-    /* Not a reboot — check for restart marker */
-    char restart_marker[PATH_MAX];
-    /* Use precision to satisfy GCC -Werror=format-truncation while keeping
-     * explicit return value checks for safety. */
-    int n =
-        snprintf(restart_marker, sizeof(restart_marker),
-                 "%.2048s/%.256s.restart", get_pids_dir(), cfg->container_name);
-    if (n >= (int)sizeof(restart_marker)) {
-      ds_warn("Restart marker path truncated: %s", cfg->container_name);
+    /* Not a reboot — check for manual Monitor Lock.
+     * If the lock exists, it means a manual stop/restart is in progress,
+     * and the CLI binary will handle the cleanup. */
+    monitor_lock_path(cfg->container_name, lock_marker, sizeof(lock_marker));
+    if (access(lock_marker, F_OK) == 0) {
+      ds_log("Monitor Lock detected on exit — yielding cleanup to CLI");
+      goto monitor_exit;
     }
 
-    if (access(restart_marker, F_OK) == 0) {
-      ds_log("Restart marker found, skipping monitor cleanup");
-    } else {
-      cleanup_container_resources(cfg, 0, 0, 0);
-    }
+    /* No lock? Normal exit (poweroff) — perform full cleanup. */
+    cleanup_container_resources(cfg, 0, 0, 0);
 
     /* Free dynamically allocated configuration members before exit */
     free_config_binds(cfg);
@@ -676,6 +648,8 @@ int start_rootfs(struct ds_config *cfg) {
 
     int ret =
         console_monitor_loop(cfg->console.master, monitor_pid, cfg->pidfile);
+    if (lock_marker[0])
+      unlink(lock_marker);
     free_config_env_vars(cfg);
     return ret;
   } else {
@@ -719,6 +693,8 @@ int start_rootfs(struct ds_config *cfg) {
     }
   }
 
+  if (lock_marker[0])
+    unlink(lock_marker);
   free_config_binds(cfg);
   free_config_env_vars(cfg);
 
@@ -747,6 +723,8 @@ cleanup:
 
   free_config_binds(cfg);
   free_config_env_vars(cfg);
+  if (lock_marker[0])
+    unlink(lock_marker);
   return -1;
 }
 
@@ -764,17 +742,6 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   }
 
   ds_log("Stopping container '%s' (PID %d)...", cfg->container_name, pid);
-
-  /* If this is a restart (skip_unmount) OF AN IMAGE-BASED container,
-   * create a restart marker so the background monitor knows to skip
-   * cleanup when the process exits. Directory-based containers do
-   * not need this as there is no host mount to preserve. */
-  if (skip_unmount && cfg->rootfs_img_path[0]) {
-    char restart_marker[PATH_MAX];
-    restart_marker_path(cfg->container_name, restart_marker,
-                        sizeof(restart_marker));
-    write_file(restart_marker, "1");
-  }
 
   /* Safe Metadata Capture: Read the mount path from the tracking file (.mount)
    * into memory before we start the shutdown wait loop. This ensures we have
@@ -848,8 +815,10 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   /* 5. Complete resource cleanup. */
   cleanup_container_resources(cfg, 0, skip_unmount, unkillable);
 
-  /* Release lock */
-  unlink(lock_marker);
+  /* Release lock only if this is a final stop.
+   * For restarts, we keep the lock alive as a handoff to start_rootfs. */
+  if (!skip_unmount)
+    unlink(lock_marker);
 
   if (!cfg->foreground)
     ds_log("Container '%s' stopped.", cfg->container_name);

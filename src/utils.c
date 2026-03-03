@@ -308,7 +308,9 @@ int build_proc_root_path(pid_t pid, const char *suffix, char *buf,
 int parse_os_release(const char *rootfs_path, char *id_out, char *ver_out,
                      size_t out_size) {
   char path[PATH_MAX];
-  snprintf(path, sizeof(path), "%s" DS_OS_RELEASE, rootfs_path);
+  /* Use precision to satisfy GCC -Werror=format-truncation while keeping
+   * explicit return value checks if needed. /etc/os-release is 15 chars. */
+  snprintf(path, sizeof(path), "%.4080s/etc/os-release", rootfs_path);
 
   char buf[4096];
   if (read_file(path, buf, sizeof(buf)) < 0)
