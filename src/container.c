@@ -167,6 +167,17 @@ int start_rootfs(struct ds_config *cfg) {
    *    resolution or workspace setup, using the restart marker and
    *    .mount sidecar to detect a preserved mount from stop(skip_unmount). */
   int restart_reuse = 0;
+
+  /* If this is NOT an image-based container, any restart marker is a leak.
+   * Unlink it immediately to prevent the monitor from skipping cleanup. */
+  if (cfg->container_name[0] && cfg->rootfs_img_path[0] == '\0') {
+    char marker[PATH_MAX];
+    restart_marker_path(cfg->container_name, marker, sizeof(marker));
+    if (access(marker, F_OK) == 0) {
+      unlink(marker);
+    }
+  }
+
   if (cfg->container_name[0] && cfg->rootfs_img_path[0]) {
     /* Build restart marker path */
     char restart_marker[PATH_MAX];
@@ -754,9 +765,11 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
 
   ds_log("Stopping container '%s' (PID %d)...", cfg->container_name, pid);
 
-  /* If this is a restart (skip_unmount), create a restart marker so the
-   * background monitor knows to skip cleanup when the process exits. */
-  if (skip_unmount) {
+  /* If this is a restart (skip_unmount) OF AN IMAGE-BASED container,
+   * create a restart marker so the background monitor knows to skip
+   * cleanup when the process exits. Directory-based containers do
+   * not need this as there is no host mount to preserve. */
+  if (skip_unmount && cfg->rootfs_img_path[0]) {
     char restart_marker[PATH_MAX];
     restart_marker_path(cfg->container_name, restart_marker,
                         sizeof(restart_marker));
