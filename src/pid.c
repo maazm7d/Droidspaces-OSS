@@ -42,6 +42,15 @@ int ensure_workspace(void) {
  * ---------------------------------------------------------------------------*/
 
 int generate_container_name(const char *rootfs_path, char *name, size_t size) {
+  /* The Droidspaces Monitor (ds-monitor) must NEVER attempt to generate
+   * a container name automatically. A container MUST have a name assigned
+   * before it ever reaches the monitor. If we detect the monitor process
+   * calling this function, it's a critical protocol violation. */
+  char comm[16];
+  if (prctl(PR_GET_NAME, comm) == 0 && strcmp(comm, "[ds-monitor]") == 0) {
+    _exit(EXIT_FAILURE);
+  }
+
   char id[64], version[64];
 
   if (parse_os_release(rootfs_path, id, version, sizeof(id)) < 0) {

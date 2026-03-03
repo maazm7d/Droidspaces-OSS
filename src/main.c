@@ -381,11 +381,7 @@ int main(int argc, char **argv) {
     check_kernel_recommendation();
 
     if (cfg.config_file[0]) {
-      /* Resolve mandatory name/hostname early for saving */
-      if (cfg.container_name[0] == '\0' && cfg.rootfs_path[0]) {
-        generate_container_name(cfg.rootfs_path, cfg.container_name,
-                                sizeof(cfg.container_name));
-      }
+      /* Resolve mandatory hostname early for saving */
       if (cfg.hostname[0] == '\0' && cfg.container_name[0]) {
         safe_strncpy(cfg.hostname, cfg.container_name, sizeof(cfg.hostname));
       }
@@ -438,11 +434,7 @@ int main(int argc, char **argv) {
     check_kernel_recommendation();
 
     if (cfg.config_file[0]) {
-      /* Resolve mandatory name/hostname early for saving */
-      if (cfg.container_name[0] == '\0' && cfg.rootfs_path[0]) {
-        generate_container_name(cfg.rootfs_path, cfg.container_name,
-                                sizeof(cfg.container_name));
-      }
+      /* Resolve mandatory hostname early for saving */
       if (cfg.hostname[0] == '\0' && cfg.container_name[0]) {
         safe_strncpy(cfg.hostname, cfg.container_name, sizeof(cfg.hostname));
       }
