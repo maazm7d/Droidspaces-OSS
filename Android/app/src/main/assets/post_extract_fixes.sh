@@ -80,6 +80,10 @@ if [ -f "$SYSTEMD_SYSTEM_PATH/systemd-networkd.service" ]; then
         "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
 fi
 
+# Mask systemd-networkd-wait-online.service
+log "Masking systemd-networkd-wait-online..."
+ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-networkd-wait-online.service"
+
 # 3. Disable power button handling in systemd-logind to prevent container shutdown
 log "Disabling power button handling in systemd-logind..."
 mkdir -p "$ROOTFS_PATH/etc/systemd/logind.conf.d"
@@ -107,7 +111,7 @@ Wants=systemd-udevd.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/udevadm trigger --subsystem-match=usb --subsystem-match=block --subsystem-match=input --subsystem-match=tty
+ExecStart=-/usr/bin/udevadm trigger --subsystem-match=usb --subsystem-match=block --subsystem-match=input --subsystem-match=tty
 
 [Install]
 WantedBy=multi-user.target
