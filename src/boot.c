@@ -1,5 +1,5 @@
 /*
- * Droidspaces v4 — High-performance Container Runtime
+ * Droidspaces v5 — High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -34,8 +34,10 @@ int internal_boot(struct ds_config *cfg) {
            cfg->net_mode);
 
     /* We write to net_ready, read from net_done */
-    if (cfg->net_ready_pipe[0] >= 0) close(cfg->net_ready_pipe[0]);
-    if (cfg->net_done_pipe[1]  >= 0) close(cfg->net_done_pipe[1]);
+    if (cfg->net_ready_pipe[0] >= 0)
+      close(cfg->net_ready_pipe[0]);
+    if (cfg->net_done_pipe[1] >= 0)
+      close(cfg->net_done_pipe[1]);
 
     /* Signal monitor: we are alive and in our new netns */
     char rdy = 'R';
@@ -57,8 +59,8 @@ int internal_boot(struct ds_config *cfg) {
         ds_warn("[NET] Child: incomplete handshake (read %zd, expected %zu)",
                 nr, sizeof(hs));
       } else {
-        ds_log("[NET] Child: handshake received: peer=%s ip=%s",
-               hs.peer_name, hs.ip_str);
+        ds_log("[NET] Child: handshake received: peer=%s ip=%s", hs.peer_name,
+               hs.ip_str);
       }
     }
 
@@ -68,7 +70,10 @@ int internal_boot(struct ds_config *cfg) {
     } else {
       /* DS_NET_NONE: just bring up loopback */
       ds_nl_ctx_t *nlctx = ds_nl_open();
-      if (nlctx) { ds_nl_link_up(nlctx, "lo"); ds_nl_close(nlctx); }
+      if (nlctx) {
+        ds_nl_link_up(nlctx, "lo");
+        ds_nl_close(nlctx);
+      }
     }
 
     ds_log("[NET] Child: handshake complete");
