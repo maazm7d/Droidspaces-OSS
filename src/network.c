@@ -18,6 +18,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/sockios.h>
 #include <net/if.h>
+#include <poll.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
 
@@ -571,7 +572,15 @@ static void *route_monitor_loop(void *arg) {
   struct sockaddr_nl sa;
   memset(&sa, 0, sizeof(sa));
   sa.nl_family = AF_NETLINK;
-  sa.nl_groups = RTMGRP_IPV4_ROUTE;
+  /* Subscribe to BOTH IPv4 route changes AND IPv4 policy-rule changes.
+   *
+   * Why both?  On Android MTK (and many Qualcomm devices) a WiFi ↔ mobile-data
+   * switch does NOT add/remove route-table entries — the per-interface default
+   * routes in table wlan0 / ccmni1 / v4-ccmni1 stay put.  What changes is the
+   * POLICY RULE set: Android deletes `lookup wlan0` rules and adds
+   * `lookup ccmni1` rules (or vice-versa).  Without RTMGRP_IPV4_RULE we never
+   * wake up for those transitions and the container loses internet. */
+  sa.nl_groups = RTMGRP_IPV4_ROUTE | RTMGRP_IPV4_RULE;
 
   if (bind(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
     ds_warn("[NET] Route monitor: failed to bind netlink socket: %s",
@@ -586,8 +595,64 @@ static void *route_monitor_loop(void *arg) {
   g_route_monitor_sock = sock;
   pthread_mutex_unlock(&g_gw_mutex);
 
+  /* Helper: re-probe for the active internet table and update the ip rule.
+   * parse_cidr requires a non-NULL mask pointer; _mask_be is intentionally
+   * unused after the call (we only need the subnet address). */
+#define DO_REPROBE()                                                           \
+  do {                                                                         \
+    ds_nl_ctx_t *_ctx = ds_nl_open();                                          \
+    if (_ctx) {                                                                \
+      char _gw_iface[IFNAMSIZ] = {0};                                          \
+      int _new_table = 0;                                                      \
+      if (ds_nl_get_default_gw_table(_ctx, _gw_iface, &_new_table) == 0) {     \
+        pthread_mutex_lock(&g_gw_mutex);                                       \
+        int _old_table = g_current_gw_table;                                   \
+        pthread_mutex_unlock(&g_gw_mutex);                                     \
+        if (_new_table != _old_table && _new_table > 100) {                    \
+          ds_log("[NET] Route monitor: network switch detected! "              \
+                 "Table %d -> %d (%s)",                                        \
+                 _old_table, _new_table, _gw_iface);                           \
+          uint32_t _subnet_be, _mask_be;                                       \
+          parse_cidr(DS_DEFAULT_SUBNET, &_subnet_be, &_mask_be);               \
+          (void)_mask_be;                                                      \
+          if (_old_table > 0)                                                  \
+            ds_nl_del_rule4(_ctx, _subnet_be, DS_NAT_PREFIX, 0, 0, _old_table, \
+                            100);                                              \
+          if (ds_nl_add_rule4(_ctx, _subnet_be, DS_NAT_PREFIX, 0, 0,           \
+                              _new_table, 100) == 0) {                         \
+            pthread_mutex_lock(&g_gw_mutex);                                   \
+            g_current_gw_table = _new_table;                                   \
+            pthread_mutex_unlock(&g_gw_mutex);                                 \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+      ds_nl_close(_ctx);                                                       \
+    }                                                                          \
+  } while (0)
+
   uint8_t buf[8192];
+  struct pollfd pfd = {.fd = sock, .events = POLLIN};
+
   while (!g_stop_monitor) {
+    /* 5-second timeout: catch any netlink event we might have missed.
+     * Last-resort safety net for devices that use non-standard
+     * network-switching paths (vendor RIL, custom kernel patches, etc.)
+     * that don't reliably send RTMGRP_IPV4_RULE notifications. */
+    int pr = poll(&pfd, 1, 5000);
+    if (pr < 0) {
+      if (g_stop_monitor)
+        break;
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+
+    if (pr == 0) {
+      /* Timeout-driven periodic probe */
+      DO_REPROBE();
+      continue;
+    }
+
     ssize_t len = recv(sock, buf, sizeof(buf), 0);
     if (len <= 0) {
       if (g_stop_monitor)
@@ -604,55 +669,30 @@ static void *route_monitor_loop(void *arg) {
       if (h->nlmsg_type == NLMSG_DONE || h->nlmsg_type == NLMSG_ERROR)
         break;
 
-      /* We only care about IPv4 route changes */
-      if (h->nlmsg_type != RTM_NEWROUTE && h->nlmsg_type != RTM_DELROUTE)
-        continue;
+      int should_reprobe = 0;
 
-      struct rtmsg *r = NLMSG_DATA(h);
-      if (r->rtm_family != AF_INET || r->rtm_dst_len != 0)
-        continue;
+      if (h->nlmsg_type == RTM_NEWROUTE || h->nlmsg_type == RTM_DELROUTE) {
+        /* IPv4 default-route change */
+        struct rtmsg *r = NLMSG_DATA(h);
+        if (r->rtm_family == AF_INET && r->rtm_dst_len == 0)
+          should_reprobe = 1;
+      } else if (h->nlmsg_type == RTM_NEWRULE || h->nlmsg_type == RTM_DELRULE) {
+        /* Policy-rule change: primary trigger on Android MTK/Qualcomm.
+         * When the device switches networks, Android adds/removes `ip rule`
+         * entries rather than touching the route tables themselves. */
+        struct rtmsg *r = NLMSG_DATA(h);
+        if (r->rtm_family == AF_INET)
+          should_reprobe = 1;
+      }
 
-      /* A default route was added or deleted.
-       * Trigger a re-probe to see if we need to swap tables. */
-      if (!refreshed) {
-        ds_nl_ctx_t *ctx = ds_nl_open();
-        if (ctx) {
-          char gw_iface[IFNAMSIZ] = {0};
-          int new_table = 0;
-          if (ds_nl_get_default_gw_table(ctx, gw_iface, &new_table) == 0) {
-            pthread_mutex_lock(&g_gw_mutex);
-            int old_table = g_current_gw_table;
-            pthread_mutex_unlock(&g_gw_mutex);
-
-            if (new_table != old_table && new_table > 100) {
-              ds_log("[NET] Route monitor: network switch detected! "
-                     "Table %d -> %d (%s)",
-                     old_table, new_table, gw_iface);
-
-              uint32_t subnet_be, mask_be;
-              parse_cidr(DS_DEFAULT_SUBNET, &subnet_be, &mask_be);
-
-              /* 1. Flush old rule if it existed */
-              if (g_current_gw_table > 0) {
-                ds_nl_del_rule4(ctx, subnet_be, DS_NAT_PREFIX, 0, 0,
-                                g_current_gw_table, 100);
-              }
-
-              /* 2. Add new rule */
-              if (ds_nl_add_rule4(ctx, subnet_be, DS_NAT_PREFIX, 0, 0,
-                                  new_table, 100) == 0) {
-                pthread_mutex_lock(&g_gw_mutex);
-                g_current_gw_table = new_table;
-                pthread_mutex_unlock(&g_gw_mutex);
-              }
-            }
-          }
-          ds_nl_close(ctx);
-        }
+      if (should_reprobe && !refreshed) {
+        DO_REPROBE();
         refreshed = 1;
       }
     }
   }
+
+#undef DO_REPROBE
 
   pthread_mutex_lock(&g_gw_mutex);
   close(sock);
