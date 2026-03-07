@@ -591,7 +591,7 @@ fun ContainerConfigScreen(
                                                     showPortDialog = false
                                                 }
                                             },
-                                            enabled = isFormValid
+                                            enabled = isFormValid && portForwards.size < 32
                                         ) {
                                             Text(context.getString(R.string.add))
                                         }
@@ -601,7 +601,7 @@ fun ContainerConfigScreen(
                         }
                     }
 
-                    OutlinedButton(
+                    if (portForwards.size < 32) OutlinedButton(
                         onClick = { showPortDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -799,4 +799,3 @@ fun ContainerConfigScreen(
         }
     }
 }
-

@@ -802,7 +802,7 @@ fun EditContainerScreen(
                                                     showPortDialog = false
                                                 }
                                             },
-                                            enabled = isFormValid
+                                            enabled = isFormValid && portForwards.size < 32
                                         ) {
                                             Text(context.getString(R.string.add))
                                         }
@@ -812,7 +812,7 @@ fun EditContainerScreen(
                         }
                     }
 
-                    OutlinedButton(
+                    if (portForwards.size < 32) OutlinedButton(
                         onClick = { clearFocus(); showPortDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {

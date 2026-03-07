@@ -264,6 +264,10 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
         }
         up_tok = strtok_r(NULL, ",", &up_saveptr);
       }
+      if (up_tok)
+        ds_warn("config: too many upstream_interfaces (max %d) — extra entries "
+                "ignored",
+                DS_MAX_UPSTREAM_IFACES);
     } else if (strcmp(key, "port_forwards") == 0) {
       /* Comma-separated HOST:CONTAINER[/proto], e.g. "22:22/tcp,8096:8096" */
       char copy[1024];
@@ -306,7 +310,10 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
         }
         pf_tok = strtok_r(NULL, ",", &pf_saveptr);
       }
-    } else {
+      if (pf_tok)
+        ds_warn(
+            "config: too many port_forwards (max %d) — extra entries ignored",
+            DS_MAX_PORT_FORWARDS);
       /* Preservation: Capture unknown key-value pairs for Android metadata */
       add_unknown_line(cfg, line);
     }
