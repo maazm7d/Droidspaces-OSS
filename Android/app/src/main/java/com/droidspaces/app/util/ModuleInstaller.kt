@@ -21,6 +21,7 @@ sealed class ModuleInstallationStep {
 object ModuleInstaller {
     private const val MAGISK_MODULE_PATH = "/data/adb/modules/droidspaces"
     private const val MODULE_PROP_PATH = "$MAGISK_MODULE_PATH/module.prop"
+    private const val BUSYBOX_PATH = Constants.BUSYBOX_BINARY_PATH
 
     /**
      * Install Magisk module from assets to /data/adb/modules/droidspaces
@@ -36,7 +37,7 @@ object ModuleInstaller {
 
             // Step 1: Remove old module directory
             onProgress(ModuleInstallationStep.RemovingOldModule(MAGISK_MODULE_PATH))
-            Shell.cmd("rm -rf '$MAGISK_MODULE_PATH' 2>&1").exec()
+            Shell.cmd("$BUSYBOX_PATH rm -rf '$MAGISK_MODULE_PATH' 2>&1").exec()
 
             // Step 2: Extract all assets from boot-module to temp directory
             onProgress(ModuleInstallationStep.ExtractingAssets(tempDir.absolutePath))
@@ -63,7 +64,7 @@ object ModuleInstaller {
 
             // Step 3: Create module directory and copy everything
             onProgress(ModuleInstallationStep.CopyingModule(MAGISK_MODULE_PATH))
-            val mkdirResult = Shell.cmd("mkdir -p '$MAGISK_MODULE_PATH' 2>&1").exec()
+            val mkdirResult = Shell.cmd("$BUSYBOX_PATH mkdir -p '$MAGISK_MODULE_PATH' 2>&1").exec()
             if (!mkdirResult.isSuccess) {
                 tempDir.deleteRecursively()
                 return@withContext Result.failure(
@@ -71,7 +72,7 @@ object ModuleInstaller {
                 )
             }
 
-            val copyResult = Shell.cmd("cp -arf '${tempDir.absolutePath}'/* '$MAGISK_MODULE_PATH/' 2>&1").exec()
+            val copyResult = Shell.cmd("$BUSYBOX_PATH cp -arf '${tempDir.absolutePath}'/* '$MAGISK_MODULE_PATH/' 2>&1").exec()
             tempDir.deleteRecursively()
             if (!copyResult.isSuccess) {
                 return@withContext Result.failure(
@@ -81,7 +82,7 @@ object ModuleInstaller {
 
             // Step 4: Set permissions
             onProgress(ModuleInstallationStep.SettingPermissions(MAGISK_MODULE_PATH))
-            val chmodScriptsResult = Shell.cmd("chmod 755 '$MAGISK_MODULE_PATH'/*.sh 2>&1 && chmod 644 '$MAGISK_MODULE_PATH'/*.prop 2>&1").exec()
+            val chmodScriptsResult = Shell.cmd("$BUSYBOX_PATH chmod 755 '$MAGISK_MODULE_PATH'/*.sh 2>&1 && $BUSYBOX_PATH chmod 644 '$MAGISK_MODULE_PATH'/*.prop 2>&1").exec()
             if (!chmodScriptsResult.isSuccess) {
                 return@withContext Result.failure(
                     Exception("Failed to set permissions: ${chmodScriptsResult.err.joinToString()}")
@@ -91,21 +92,21 @@ object ModuleInstaller {
             // Step 5: Create system/bin directory and symlink (non-critical, warnings only)
             val systemBinDir = "$MAGISK_MODULE_PATH/system/bin"
             val symlinkPath = "$systemBinDir/droidspaces"
-            val mkdirBinResult = Shell.cmd("mkdir -p '$systemBinDir' 2>&1").exec()
+            val mkdirBinResult = Shell.cmd("$BUSYBOX_PATH mkdir -p '$systemBinDir' 2>&1").exec()
             if (!mkdirBinResult.isSuccess) {
                 Log.w("ModuleInstaller", "Warning: Failed to create system/bin directory: ${mkdirBinResult.err.joinToString()}")
             } else {
                 // Create symlink from system/bin/droidspaces to the actual binary
                 val binaryPath = Constants.DROIDSPACES_BINARY_PATH
                 // Remove existing symlink/file if it exists
-                Shell.cmd("rm -f '$symlinkPath' 2>&1").exec()
+                Shell.cmd("$BUSYBOX_PATH rm -f '$symlinkPath' 2>&1").exec()
                 // Create symlink
-                val symlinkResult = Shell.cmd("ln -sf '$binaryPath' '$symlinkPath' 2>&1").exec()
+                val symlinkResult = Shell.cmd("$BUSYBOX_PATH ln -sf '$binaryPath' '$symlinkPath' 2>&1").exec()
                 if (!symlinkResult.isSuccess) {
                     Log.w("ModuleInstaller", "Warning: Failed to create symlink from $symlinkPath to $binaryPath: ${symlinkResult.err.joinToString()}")
                 } else {
                     // Ensure symlink is executable (though it should inherit from target)
-                    val chmodSymlinkResult = Shell.cmd("chmod 755 '$symlinkPath' 2>&1").exec()
+                    val chmodSymlinkResult = Shell.cmd("$BUSYBOX_PATH chmod 755 '$symlinkPath' 2>&1").exec()
                     if (!chmodSymlinkResult.isSuccess) {
                         Log.w("ModuleInstaller", "Warning: Failed to set symlink permissions: ${chmodSymlinkResult.err.joinToString()}")
                     } else {
@@ -116,8 +117,8 @@ object ModuleInstaller {
 
             // Step 6: Verify installation
             onProgress(ModuleInstallationStep.Verifying(MAGISK_MODULE_PATH))
-            val verifyDirResult = Shell.cmd("test -d '$MAGISK_MODULE_PATH' 2>&1").exec()
-            val verifyPropResult = Shell.cmd("test -f '$MODULE_PROP_PATH' 2>&1").exec()
+            val verifyDirResult = Shell.cmd("$BUSYBOX_PATH test -d '$MAGISK_MODULE_PATH' 2>&1").exec()
+            val verifyPropResult = Shell.cmd("$BUSYBOX_PATH test -f '$MODULE_PROP_PATH' 2>&1").exec()
 
             if (!verifyDirResult.isSuccess) {
                 return@withContext Result.failure(
@@ -132,7 +133,7 @@ object ModuleInstaller {
             }
 
             // Symlink verification is non-critical - just log a warning if it doesn't exist
-            val verifySymlinkResult = Shell.cmd("test -L '$symlinkPath' 2>&1").exec()
+            val verifySymlinkResult = Shell.cmd("$BUSYBOX_PATH test -L '$symlinkPath' 2>&1").exec()
             if (!verifySymlinkResult.isSuccess) {
                 Log.w("ModuleInstaller", "Warning: Symlink verification failed - symlink may not be available in system PATH")
             }

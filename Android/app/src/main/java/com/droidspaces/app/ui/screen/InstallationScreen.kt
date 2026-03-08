@@ -26,6 +26,7 @@ import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.droidspaces.app.R
+import com.droidspaces.app.util.Constants
 
 @Composable
 fun InstallationScreen(
@@ -75,7 +76,8 @@ fun InstallationScreen(
 
                     // Step 1: Remove old module
                     currentStep = InstallationStep.CreatingDirectories("/data/adb/modules/droidspaces")
-                    Shell.cmd("rm -rf '/data/adb/modules/droidspaces' 2>&1").exec()
+                    val busybox = Constants.BUSYBOX_BINARY_PATH
+                    Shell.cmd("$busybox rm -rf '/data/adb/modules/droidspaces' 2>&1 || rm -rf '/data/adb/modules/droidspaces' 2>&1").exec()
 
                     // Step 2: Install binaries
                     val binaryResult = BinaryInstaller.install(context) { step ->

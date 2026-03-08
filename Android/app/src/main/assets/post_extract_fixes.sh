@@ -43,7 +43,7 @@ log "Systemd detected, applying fixes..."
 
 # 1. Fix internet (DNS configuration)
 log "Configuring DNS settings..."
-mkdir -p "$ROOTFS_PATH/etc/systemd/resolved.conf.d"
+"${BUSYBOX_PATH}" mkdir -p "$ROOTFS_PATH/etc/systemd/resolved.conf.d"
 cat > "$ROOTFS_PATH/etc/systemd/resolved.conf.d/dns.conf" << 'EOF'
 [Resolve]
 DNS=8.8.8.8 8.8.4.4
@@ -52,27 +52,27 @@ EOF
 
 # 2. Enable systemd-resolved and systemd-networkd by default
 log "Enabling systemd-resolved and systemd-networkd..."
-mkdir -p "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants"
+"${BUSYBOX_PATH}" mkdir -p "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants"
 
 # Enable systemd-resolved
 if [ -f "$SYSTEMD_SYSTEM_PATH/systemd-resolved.service" ]; then
-    ln -sf "$SYSTEMD_SYSTEM_PATH/systemd-resolved.service" \
+    "${BUSYBOX_PATH}" ln -sf "$SYSTEMD_SYSTEM_PATH/systemd-resolved.service" \
         "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants/systemd-resolved.service"
 fi
 
 # Enable systemd-networkd
 if [ -f "$SYSTEMD_SYSTEM_PATH/systemd-networkd.service" ]; then
-    ln -sf "$SYSTEMD_SYSTEM_PATH/systemd-networkd.service" \
+    "${BUSYBOX_PATH}" ln -sf "$SYSTEMD_SYSTEM_PATH/systemd-networkd.service" \
         "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants/systemd-networkd.service"
 fi
 
 # Mask systemd-networkd-wait-online.service
 log "Masking systemd-networkd-wait-online..."
-ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-networkd-wait-online.service"
+"${BUSYBOX_PATH}" ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-networkd-wait-online.service"
 
 # 3. Disable power button handling in systemd-logind to prevent container shutdown
 log "Disabling power button handling in systemd-logind..."
-mkdir -p "$ROOTFS_PATH/etc/systemd/logind.conf.d"
+"${BUSYBOX_PATH}" mkdir -p "$ROOTFS_PATH/etc/systemd/logind.conf.d"
 cat > "$ROOTFS_PATH/etc/systemd/logind.conf.d/99-disable-power-button.conf" << 'EOF'
 [Login]
 HandlePowerKey=ignore
@@ -82,9 +82,9 @@ EOF
 
 # 4. Mask dangerous standard udev triggers (Prevents coldplugging Android hardware)
 log "Masking dangerous udev triggers..."
-mkdir -p "$ROOTFS_PATH/etc/systemd/system"
-ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-udev-trigger.service"
-ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-udev-settle.service"
+"${BUSYBOX_PATH}" mkdir -p "$ROOTFS_PATH/etc/systemd/system"
+"${BUSYBOX_PATH}" ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-udev-trigger.service"
+"${BUSYBOX_PATH}" ln -sf /dev/null "$ROOTFS_PATH/etc/systemd/system/systemd-udev-settle.service"
 
 # 5. Create a SAFE udev trigger service (Only triggers USB, Input, Block devices)
 log "Creating safe udev trigger service..."
@@ -106,11 +106,11 @@ EOF
 # 6. Enable the safe trigger and ensure the main daemon is unmasked
 log "Enabling safe udev trigger service..."
 # Unmask systemd-udevd.service if it was masked
-rm -f "$ROOTFS_PATH/etc/systemd/system/systemd-udevd.service"
+"${BUSYBOX_PATH}" rm -f "$ROOTFS_PATH/etc/systemd/system/systemd-udevd.service"
 
 # Enable the safe trigger service
 if [ -d "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants" ]; then
-    ln -sf /etc/systemd/system/safe-udev-trigger.service \
+    "${BUSYBOX_PATH}" ln -sf /etc/systemd/system/safe-udev-trigger.service \
         "$ROOTFS_PATH/etc/systemd/system/multi-user.target.wants/safe-udev-trigger.service"
 fi
 

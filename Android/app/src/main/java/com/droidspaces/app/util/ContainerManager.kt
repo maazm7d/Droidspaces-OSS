@@ -344,7 +344,8 @@ object ContainerManager {
      */
     suspend fun listUpstreamInterfaces(): List<String> = withContext(Dispatchers.IO) {
         try {
-            val cmd = "ip route show default | awk '{for(i=1;i<=NF;i++) if(\$i==\"dev\") print \$(i+1)}' | grep -v '^ds-' | sort -u"
+            val busybox = Constants.BUSYBOX_BINARY_PATH
+            val cmd = "ip route show default | $busybox awk '{for(i=1;i<=NF;i++) if(\$i==\"dev\") print \$(i+1)}' | $busybox grep -v '^ds-' | $busybox sort -u"
             val result = Shell.cmd(cmd).exec()
             if (result.isSuccess) {
                 result.out.map { it.trim() }.filter { it.isNotEmpty() }

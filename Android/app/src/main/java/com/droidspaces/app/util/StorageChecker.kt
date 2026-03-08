@@ -16,7 +16,7 @@ object StorageChecker {
     suspend fun getFreeSpaceGB(): Int? = withContext(Dispatchers.IO) {
         try {
             // Try using stat first (more accurate)
-            val statResult = Shell.cmd("stat -f -c '%a %S' /data 2>&1").exec()
+            val statResult = Shell.cmd("$BUSYBOX_PATH stat -f -c '%a %S' /data 2>&1").exec()
             if (statResult.isSuccess && statResult.out.isNotEmpty()) {
                 val parts = statResult.out[0].trim().split(" ")
                 if (parts.size == 2) {

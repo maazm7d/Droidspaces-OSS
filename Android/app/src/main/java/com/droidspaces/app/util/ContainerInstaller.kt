@@ -56,7 +56,7 @@ object ContainerInstaller {
 
             // Step 2: Create container directory
             logger.i("Creating container directory: $containerPath")
-            val mkdirResult = Shell.cmd("mkdir -p \"$containerPath\" 2>&1").exec()
+            val mkdirResult = Shell.cmd("$BUSYBOX_PATH mkdir -p \"$containerPath\" 2>&1").exec()
             if (!mkdirResult.isSuccess) {
                 val errorOutput = (mkdirResult.out + mkdirResult.err).joinToString("\n").trim()
                 val errorMsg = if (errorOutput.isNotEmpty()) errorOutput else "Unknown error (exit code: ${mkdirResult.code})"
@@ -88,7 +88,7 @@ object ContainerInstaller {
                 )
             } else {
                 // Create rootfs subdirectory
-                val mkdirRootfsResult = Shell.cmd("mkdir -p \"$rootfsPath\" 2>&1").exec()
+                val mkdirRootfsResult = Shell.cmd("$BUSYBOX_PATH mkdir -p \"$rootfsPath\" 2>&1").exec()
                 if (!mkdirRootfsResult.isSuccess) {
                     val errorOutput = (mkdirRootfsResult.out + mkdirRootfsResult.err).joinToString("\n").trim()
                     val errorMsg = if (errorOutput.isNotEmpty()) errorOutput else "Unknown error (exit code: ${mkdirRootfsResult.code})"
@@ -127,7 +127,7 @@ object ContainerInstaller {
 
             // Copy temp config to final location using shell (root required)
             // Quote paths to handle any special characters
-            val copyResult = Shell.cmd("cp \"${tempConfigFile.absolutePath}\" \"$configFilePath\" 2>&1").exec()
+            val copyResult = Shell.cmd("$BUSYBOX_PATH cp \"${tempConfigFile.absolutePath}\" \"$configFilePath\" 2>&1").exec()
             if (!copyResult.isSuccess) {
                 // Check both stdout and stderr for error messages
                 val errorOutput = (copyResult.out + copyResult.err).joinToString("\n").trim()
@@ -139,7 +139,7 @@ object ContainerInstaller {
             }
 
             // Set proper permissions
-            val chmodResult = Shell.cmd("chmod 644 \"$configFilePath\" 2>&1").exec()
+            val chmodResult = Shell.cmd("$BUSYBOX_PATH chmod 644 \"$configFilePath\" 2>&1").exec()
             if (!chmodResult.isSuccess) {
                 logger.w("Warning: Failed to set config file permissions")
             }
@@ -159,12 +159,12 @@ object ContainerInstaller {
                 try {
                     tempEnvFile.writeText(config.envFileContent + "\n")
                     
-                    val envCopyResult = Shell.cmd("cp \"${tempEnvFile.absolutePath}\" \"$envFilePath\" 2>&1").exec()
+                    val envCopyResult = Shell.cmd("$BUSYBOX_PATH cp \"${tempEnvFile.absolutePath}\" \"$envFilePath\" 2>&1").exec()
                     if (!envCopyResult.isSuccess) {
                         val errorMsg = envCopyResult.err.joinToString("\n")
                         logger.w("Warning: Failed to copy .env file: $errorMsg")
                     } else {
-                        Shell.cmd("chmod 644 \"$envFilePath\"").exec()
+                        Shell.cmd("$BUSYBOX_PATH chmod 644 \"$envFilePath\"").exec()
                         logger.i("Environment variables saved")
                         createdPaths.add(envFilePath)
                     }
@@ -178,12 +178,12 @@ object ContainerInstaller {
             // Step 6: Verify installation
             logger.i("Verifying installation...")
             if (config.useSparseImage) {
-                val imgExists = Shell.cmd("test -f \"$rootfsPath\" && echo 'exists' || echo 'not_found'").exec()
+                val imgExists = Shell.cmd("$BUSYBOX_PATH test -f \"$rootfsPath\" && echo 'exists' || echo 'not_found'").exec()
                 if (!imgExists.isSuccess || !imgExists.out.any { it.contains("exists") }) {
                     throw Exception("Container sparse image not found after extraction")
                 }
             } else {
-            val rootfsExists = Shell.cmd("test -d \"$rootfsPath\" && echo 'exists' || echo 'not_found'").exec()
+            val rootfsExists = Shell.cmd("$BUSYBOX_PATH test -d \"$rootfsPath\" && echo 'exists' || echo 'not_found'").exec()
             if (!rootfsExists.isSuccess || !rootfsExists.out.any { it.contains("exists") }) {
                 throw Exception("Container rootfs directory not found after extraction")
                 }
@@ -266,7 +266,7 @@ object ContainerInstaller {
         }
 
         // Make script executable
-        val chmodResult = Shell.cmd("chmod 755 \"${postFixScriptFile.absolutePath}\" 2>&1").exec()
+        val chmodResult = Shell.cmd("$BUSYBOX_PATH chmod 755 \"${postFixScriptFile.absolutePath}\" 2>&1").exec()
         if (!chmodResult.isSuccess) {
             logger.w("Warning: Failed to make post-fix script executable")
             postFixScriptFile.delete()
@@ -315,7 +315,7 @@ object ContainerInstaller {
     private suspend fun cleanup(paths: List<String>, logger: ContainerLogger) {
         paths.reversed().forEach { path ->
             try {
-                val result = Shell.cmd("rm -rf $path 2>&1").exec()
+                val result = Shell.cmd("$BUSYBOX_PATH rm -rf $path 2>&1").exec()
                 if (result.isSuccess) {
                     logger.d("Cleaned up: $path")
                 } else {
