@@ -162,8 +162,8 @@ object BinaryInstaller {
 
             // Step 5: Verify both installations
             onProgress(InstallationStep.Verifying("droidspaces and busybox"))
-            val verifyDroidspaces = Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} test -x $droidspacesTargetPath && echo 'verified' || echo 'verification_failed'").exec()
-            val verifyBusybox = Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} test -x $busyboxTargetPath && echo 'verified' || echo 'verification_failed'").exec()
+            val verifyDroidspaces = Shell.cmd("test -x $droidspacesTargetPath && echo 'verified' || echo 'verification_failed'").exec()
+            val verifyBusybox = Shell.cmd("test -x $busyboxTargetPath && echo 'verified' || echo 'verification_failed'").exec()
 
             if (!verifyDroidspaces.isSuccess || !verifyDroidspaces.out.any { it.contains("verified") }) {
                 return@withContext Result.failure(
@@ -191,8 +191,8 @@ object BinaryInstaller {
      * Check if binaries are already installed
      */
     suspend fun isInstalled(): Boolean = withContext(Dispatchers.IO) {
-        val droidspacesResult = Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} test -x $INSTALL_PATH/$DROIDSPACES_BINARY_NAME && echo 'installed' || echo 'not_installed'").exec()
-        val busyboxResult = Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} test -x $INSTALL_PATH/$BUSYBOX_BINARY_NAME && echo 'installed' || echo 'not_installed'").exec()
+        val droidspacesResult = Shell.cmd("test -x $INSTALL_PATH/$DROIDSPACES_BINARY_NAME && echo 'installed' || echo 'not_installed'").exec()
+        val busyboxResult = Shell.cmd("test -x $INSTALL_PATH/$BUSYBOX_BINARY_NAME && echo 'installed' || echo 'not_installed'").exec()
         droidspacesResult.isSuccess && droidspacesResult.out.any { it.contains("installed") } &&
         busyboxResult.isSuccess && busyboxResult.out.any { it.contains("installed") }
     }

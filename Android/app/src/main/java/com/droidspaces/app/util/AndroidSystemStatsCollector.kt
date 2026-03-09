@@ -12,7 +12,6 @@ import java.util.regex.Pattern
  */
 object AndroidSystemStatsCollector {
     private const val TAG = "AndroidSystemStatsCollector"
-    private const val BUSYBOX_PATH = Constants.BUSYBOX_BINARY_PATH
 
     /**
      * Android system usage statistics.
@@ -55,7 +54,7 @@ object AndroidSystemStatsCollector {
      */
     private suspend fun getCpuUsage(): Double = withContext(Dispatchers.IO) {
         try {
-            val result = Shell.cmd("$BUSYBOX_PATH cat /proc/stat | $BUSYBOX_PATH head -1").exec()
+            val result = Shell.cmd("cat /proc/stat | head -1").exec()
 
             if (result.isSuccess && result.out.isNotEmpty()) {
                 val parts = result.out[0].trim().split("\\s+".toRegex())
@@ -97,7 +96,7 @@ object AndroidSystemStatsCollector {
      */
     private suspend fun getRamUsage(): Double = withContext(Dispatchers.IO) {
         try {
-            val result = Shell.cmd("$BUSYBOX_PATH cat /proc/meminfo | $BUSYBOX_PATH grep -E 'MemTotal|MemAvailable'").exec()
+            val result = Shell.cmd("cat /proc/meminfo | grep -E 'MemTotal|MemAvailable'").exec()
 
             if (result.isSuccess && result.out.size >= 2) {
                 var memTotal = 0L
@@ -136,7 +135,7 @@ object AndroidSystemStatsCollector {
      */
     private suspend fun getUptime(): String = withContext(Dispatchers.IO) {
         try {
-            val result = Shell.cmd("$BUSYBOX_PATH cat /proc/uptime").exec()
+            val result = Shell.cmd("cat /proc/uptime").exec()
 
             if (result.isSuccess && result.out.isNotEmpty()) {
                 val uptimeSeconds = result.out[0].trim().split("\\s+".toRegex())[0].toDoubleOrNull() ?: 0.0
@@ -161,7 +160,7 @@ object AndroidSystemStatsCollector {
             )
 
             for (path in thermalPaths) {
-                val result = Shell.cmd("$BUSYBOX_PATH cat $path 2>/dev/null").exec()
+                val result = Shell.cmd("cat $path 2>/dev/null").exec()
                 if (result.isSuccess && result.out.isNotEmpty()) {
                     val tempMilliCelsius = result.out[0].trim().toLongOrNull()
                     if (tempMilliCelsius != null && tempMilliCelsius > 0) {

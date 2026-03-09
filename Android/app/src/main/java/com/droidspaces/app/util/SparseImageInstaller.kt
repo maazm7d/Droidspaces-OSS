@@ -37,7 +37,7 @@ object SparseImageInstaller {
         try {
             // 1. Create Sparse Image
             logger.i("[SPARSE] Creating sparse image: ${sizeGB}GB")
-            val truncateCmd = "${Constants.BUSYBOX_BINARY_PATH} truncate -s ${sizeGB}G \"$imgPath\""
+            val truncateCmd = "truncate -s ${sizeGB}G \"$imgPath\" || ${Constants.BUSYBOX_BINARY_PATH} truncate -s ${sizeGB}G \"$imgPath\""
             runRootCommand(truncateCmd, logger) ?: throw Exception("Failed to create sparse image file")
 
             // Wait for filesystem to settle
@@ -46,12 +46,12 @@ object SparseImageInstaller {
 
             // 2. Format as ext4
             logger.i("[SPARSE] Formatting sparse image as ext4...")
-            val mkfsCmd = "mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\" || ${Constants.BUSYBOX_BINARY_PATH} mke2fs -t ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\""
+            val mkfsCmd = "mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\" || mke2fs -t ext4 -F -E lazy_itable_init=0,lazy_journal_init=0 -L \"droidspaces-rootfs\" \"$imgPath\""
             runRootCommand(mkfsCmd, logger) ?: throw Exception("Failed to format sparse image as ext4")
 
             // 2b. Reclaim reserved blocks (tune2fs -m 0)
             logger.i("[SPARSE] Reclaiming reserved disk space (tune2fs -m 0)...")
-            runRootCommand("${Constants.BUSYBOX_BINARY_PATH} tune2fs -m 0 \"$imgPath\"", logger)
+            runRootCommand("tune2fs -m 0 \"$imgPath\"", logger)
             
             // 2c. Verify with e2fsck
             logger.i("[SPARSE] Verifying filesystem integrity (e2fsck)...")
@@ -70,7 +70,7 @@ object SparseImageInstaller {
 
             // 3. Create Mount Point
             logger.i("[SPARSE] Creating mount point: $mountPoint")
-            runRootCommand("${Constants.BUSYBOX_BINARY_PATH} mkdir -p \"$mountPoint\"", logger) ?: throw Exception("Failed to create mount point")
+            runRootCommand("mkdir -p \"$mountPoint\"", logger) ?: throw Exception("Failed to create mount point")
 
             // 3b. Apply correct SELinux context to the image file
             logger.i("[SPARSE] Applying SELinux context (vold_data_file)...")
@@ -114,13 +114,13 @@ object SparseImageInstaller {
                 Shell.cmd(umountCmd).exec()
                 
                 // Cleanup mount point directory
-                Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} rmdir \"$mountPoint\"").exec()
+                Shell.cmd("rmdir \"$mountPoint\"").exec()
             }
 
         } catch (e: Exception) {
             logger.e("[SPARSE] Error: ${e.message}")
             // Cleanup incomplete image on failure
-            Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} rm -f \"$imgPath\"").exec()
+            Shell.cmd("rm -f \"$imgPath\"").exec()
             throw e
         }
     }
@@ -147,7 +147,7 @@ object SparseImageInstaller {
                     inputStream.copyTo(outputStream)
                 }
             }
-            Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} chmod 755 \"${postFixScriptFile.absolutePath}\"").exec()
+            Shell.cmd("chmod 755 \"${postFixScriptFile.absolutePath}\"").exec()
             
             val result = Shell.cmd("BUSYBOX_PATH=${Constants.BUSYBOX_BINARY_PATH} \"${postFixScriptFile.absolutePath}\" \"$rootfs\" 2>&1").exec()
             

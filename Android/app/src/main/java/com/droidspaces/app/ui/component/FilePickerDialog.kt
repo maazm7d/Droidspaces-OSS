@@ -44,7 +44,6 @@ import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import com.droidspaces.app.util.Constants
 
 /**
  * Draws a vertical scrollbar indicator for LazyColumn on the right edge.
@@ -139,8 +138,7 @@ fun FilePickerDialog(
             if (targetDir != currentPath && targetDir.isNotEmpty()) {
                 // Verify the directory exists before navigating
                 val exists = withContext(Dispatchers.IO) {
-                    val busybox = Constants.BUSYBOX_BINARY_PATH
-                    val result = Shell.cmd("$busybox test -d \"$targetDir\" && echo yes || [ -d \"$targetDir\" ] && echo yes").exec()
+                    val result = Shell.cmd("[ -d \"$targetDir\" ] && echo yes").exec()
                     result.isSuccess && result.out.firstOrNull() == "yes"
                 }
                 if (exists) {
@@ -382,8 +380,7 @@ private fun FileItemRow(
 private suspend fun fetchItems(path: String, showFiles: Boolean): List<FileItem> = withContext(Dispatchers.IO) {
     // We use ls -F to identify directories safely across different Android versions/busybox configs
     // The trailing slash identifies directories.
-    val busybox = Constants.BUSYBOX_BINARY_PATH
-    val result = Shell.cmd("$busybox ls -F \"$path\" 2>/dev/null || ls -F \"$path\" 2>/dev/null").exec()
+    val result = Shell.cmd("ls -F \"$path\" 2>/dev/null").exec()
     if (!result.isSuccess) return@withContext emptyList()
 
     result.out.mapNotNull { line ->

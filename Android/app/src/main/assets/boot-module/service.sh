@@ -11,7 +11,7 @@ DROIDSPACE_BINARY=${DROIDSPACE_DIR}/bin/droidspaces
 BUSYBOX_BINARY=${DROIDSPACE_DIR}/bin/busybox
 
 # Create logs directory if it doesn't exist
-"${BUSYBOX_BINARY}" mkdir -p "${LOGS_DIR}" 2>/dev/null
+mkdir -p "${LOGS_DIR}" 2>/dev/null
 
 # Clear log file at boot start
 > "${LOGS_FILE}" 2>/dev/null
@@ -21,7 +21,7 @@ exec >> "${LOGS_FILE}" 2>&1
 
 # Function to log with timestamp
 log() {
-    local timestamp=$("${BUSYBOX_BINARY}" date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$("${BUSYBOX_BINARY}" date +%s)")
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo "$(date +%s)")
     echo "[${timestamp}] $*"
 }
 
@@ -55,11 +55,11 @@ ${BUSYBOX_BINARY} find "${CONTAINERS_DIR}" -name "*.img" -exec chcon u:object_r:
 # Wait for boot to complete
 log "Waiting for boot to complete..."
 while [ "$(getprop sys.boot_completed 2>/dev/null)" != "1" ]; do
-    "${BUSYBOX_BINARY}" sleep 1
+    sleep 1
 done
 
 log "Boot completed, waiting 25 seconds for system stability..."
-"${BUSYBOX_BINARY}" sleep 25
+sleep 25
 
 # Find all container.config files
 log "Scanning for container configurations..."
@@ -94,7 +94,7 @@ for cfg in ${CONFIG_FILES}; do
     container_count=$((container_count + 1))
 
     # Use name for log, fall back to dirname if missing
-    display_name="${name:-$("${BUSYBOX_BINARY}" basename "$("${BUSYBOX_BINARY}" dirname "${cfg}")")}"
+    display_name="${name:-$(basename "$(dirname "${cfg}")")}"
 
     log "Starting container: ${display_name}"
 
