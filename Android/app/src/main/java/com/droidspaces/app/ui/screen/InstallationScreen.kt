@@ -49,14 +49,30 @@ fun InstallationScreen(
 
             isInstalling = true
 
-            when (backendStatus) {
-                is DroidspacesBackendStatus.ModuleMissing -> {
-                    // Install module only
+            val isAtomicUpdate = backendStatus is DroidspacesBackendStatus.UpdateAvailable
+            
+            isInstallingModule = false
+
+            if (!isAtomicUpdate) {
+                // Clean Slate: Nuke everything and reinstall from scratch
+                // Performs clean installation for: Available (Reinstall), Corrupted, NotInstalled, etc.
+                currentStep = InstallationStep.CreatingDirectories("Nuking existing backend...")
+                Shell.cmd("rm -rf '/data/adb/modules/droidspaces' 2>&1").exec()
+                Shell.cmd("rm -rf '/data/local/Droidspaces/bin' 2>&1").exec()
+            }
+
+            // Step 2: Install binaries (Clean Slate recreates, Atomic Update replaces via mv -f)
+            val binaryResult = BinaryInstaller.install(context) { step ->
+                currentStep = step
+            }
+            binaryResult.fold(
+                onSuccess = {
+                    // Step 3: Install module
                     isInstallingModule = true
-                    val result = ModuleInstaller.install(context) { step ->
+                    val moduleResult = ModuleInstaller.install(context) { step ->
                         currentModuleStep = step
                     }
-                    result.fold(
+                    moduleResult.fold(
                         onSuccess = {
                             isSuccess = true
                             isInstalling = false
@@ -68,46 +84,14 @@ fun InstallationScreen(
                             isInstallingModule = false
                         }
                     )
+                },
+                onFailure = { error ->
+                    errorMessage = error.message ?: context.getString(R.string.binary_installation_failed)
+                    isInstalling = false
                 }
-                else -> {
-                    // Reinstall: remove module, install binaries, then install module
-                    isInstallingModule = false
+            )
 
-                    // Step 1: Remove old module
-                    currentStep = InstallationStep.CreatingDirectories("/data/adb/modules/droidspaces")
-                    Shell.cmd("rm -rf '/data/adb/modules/droidspaces' 2>&1").exec()
 
-                    // Step 2: Install binaries
-                    val binaryResult = BinaryInstaller.install(context) { step ->
-                        currentStep = step
-                    }
-                    binaryResult.fold(
-                        onSuccess = {
-                            // Step 3: Install module
-                            isInstallingModule = true
-                            val moduleResult = ModuleInstaller.install(context) { step ->
-                                currentModuleStep = step
-                            }
-                            moduleResult.fold(
-                                onSuccess = {
-                                    isSuccess = true
-                                    isInstalling = false
-                                    isInstallingModule = false
-                                },
-                                onFailure = { error ->
-                                    errorMessage = error.message ?: context.getString(R.string.module_installation_failed)
-                                    isInstalling = false
-                                    isInstallingModule = false
-                                }
-                            )
-                        },
-                        onFailure = { error ->
-                            errorMessage = error.message ?: context.getString(R.string.binary_installation_failed)
-                            isInstalling = false
-                        }
-                    )
-                }
-            }
         }
     }
 

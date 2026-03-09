@@ -97,6 +97,14 @@ object ModuleInstaller {
             } else {
                 // Create symlink from system/bin/droidspaces to the actual binary
                 val binaryPath = Constants.DROIDSPACES_BINARY_PATH
+
+                // Verify symlink target exists
+                val targetCheck = Shell.cmd("test -f '$binaryPath'").exec()
+                if (!targetCheck.isSuccess) {
+                    Log.e("ModuleInstaller", "Critical Error: Symlink target $binaryPath does not exist. Binaries were likely not installed correctly.")
+                    // Still attempt to create it (Magisk might work later), but log the error
+                }
+
                 // Remove existing symlink/file if it exists
                 Shell.cmd("rm -f '$symlinkPath' 2>&1").exec()
                 // Create symlink
@@ -112,6 +120,7 @@ object ModuleInstaller {
                         Log.i("ModuleInstaller", "Successfully created symlink: $symlinkPath -> $binaryPath")
                     }
                 }
+
             }
 
             // Step 6: Verify installation

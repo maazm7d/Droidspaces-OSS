@@ -62,19 +62,16 @@ object DroidspacesChecker {
                 val execCheck = Shell.cmd("test -x '$binaryPath'").exec()
                 if (!execCheck.isSuccess) return false
 
-                val fileCheck = Shell.cmd("file '$binaryPath' 2>&1").exec()
-                if (!fileCheck.isSuccess) return false
-
-                val output = fileCheck.out.joinToString(" ").lowercase()
-                return output.contains("elf") && (output.contains("executable") || output.contains("shared object"))
+                return true
             }
+
 
             val droidspacesOk = checkBinary(DROIDSPACES_BINARY_PATH)
             val busyboxOk = checkBinary(BUSYBOX_BINARY_PATH)
 
             when {
                 droidspacesOk && busyboxOk -> DroidspacesBackendStatus.Available
-                !droidspacesOk && !busyboxOk -> DroidspacesBackendStatus.NotInstalled
+                !droidspacesOk || !busyboxOk -> DroidspacesBackendStatus.NotInstalled
                 else -> DroidspacesBackendStatus.Corrupted
             }
         } catch (e: Exception) {
