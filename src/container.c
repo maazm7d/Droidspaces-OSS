@@ -1246,6 +1246,40 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
     if (ds_terminal_create(&tty) < 0)
       _exit(EXIT_FAILURE);
 
+    /* ---------------------------------------------------------------
+     * LXC-STYLE SESSION SETUP — intermediate becomes session leader
+     * ---------------------------------------------------------------
+     * Ubuntu 24.04+ login (util-linux) calls vhangup() as part of its
+     * "secure login" sequence: hang up the old session, reopen the
+     * terminal fresh, then setsid()+TIOCSCTTY to own it.
+     *
+     * vhangup() sends SIGHUP to the SESSION LEADER of the controlling
+     * terminal.  In our OLD design the grandchild (bash) was the session
+     * leader, so it received SIGHUP, killed login's process group, then
+     * killed itself — the terminal collapsed.
+     *
+     * THE FIX (matches lxc-attach behaviour):
+     *   • The INTERMEDIATE does setsid() + TIOCSCTTY here (not the shell).
+     *   • The intermediate ignores SIGHUP.
+     *   • The grandchild (bash) is a child of the intermediate's session
+     *     and is therefore NOT the session leader — it never receives
+     *     the SIGHUP that vhangup() generates.
+     *   • login's vhangup() → SIGHUP → intermediate → ignored → bash lives.
+     *   • login then does setsid() + open(/dev/pts/N without O_NOCTTY) to
+     *     auto-acquire the terminal as the new session leader.
+     *   • After login exits the terminal is released and bash resumes.
+     *
+     * The slave fd is intentionally kept open in the intermediate for the
+     * duration of the session (the LXC "peer fd").  This prevents the
+     * slave from entering a destroyed state during the vhangup/reopen
+     * window and keeps a stable reference count on the pts entry.
+     */
+    if (setsid() < 0)
+      _exit(EXIT_FAILURE);
+    if (ioctl(tty.slave, TIOCSCTTY, 0) < 0)
+      _exit(EXIT_FAILURE);
+    signal(SIGHUP, SIG_IGN);
+
     /* Send master FD back to parent */
     if (ds_send_fd(sv[1], tty.master) < 0)
       _exit(EXIT_FAILURE);
@@ -1258,18 +1292,14 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
     if (shell_pid < 0)
       _exit(EXIT_FAILURE);
     if (shell_pid == 0) {
-      /* Establish controlling terminal in the FINAL child process.
-       * This is critical: setsid() + TIOCSCTTY must happen in the
-       * process that will exec the shell, so that programs like
-       * 'login' can properly re-acquire the controlling terminal
-       * via their own setsid(). If we did this in the intermediate
-       * parent, login's setsid() would detach from the ctty but
-       * could never re-acquire it (the intermediate still owns it),
-       * causing a hang. This matches how LXC does it in
-       * lxc_terminal_prepare_login(). */
-      if (ds_terminal_make_controlling(tty.slave) < 0)
-        _exit(EXIT_FAILURE);
-
+      /* The controlling terminal and session leader were established in
+       * the intermediate (parent of this fork) — do NOT call setsid()
+       * or TIOCSCTTY here.  This process (bash) is a child member of
+       * the intermediate's session and inherits pts/1 as its ctty.
+       * Being a non-session-leader is deliberate: when the user runs
+       * 'login' inside bash, login's vhangup() sends SIGHUP only to
+       * the session leader (the intermediate, which ignores it), so
+       * bash is unaffected and its prompt returns after login exits. */
       if (ds_terminal_set_stdfds(tty.slave) < 0)
         _exit(EXIT_FAILURE);
 
@@ -1305,8 +1335,11 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
       ds_error("Failed to find any usable shell");
       _exit(EXIT_FAILURE);
     }
-    /* Intermediate: close slave fd we no longer need, wait for shell */
-    close(tty.slave);
+    /* Intermediate: intentionally keep tty.slave open as the peer fd.
+     * This holds a stable reference on the pts slave entry for the entire
+     * session, preventing it from being destroyed during the brief
+     * vhangup()/reopen window when the user runs 'login'.
+     * The fd is released automatically when we _exit below. */
     waitpid(shell_pid, NULL, 0);
     _exit(EXIT_SUCCESS);
   }
