@@ -574,7 +574,12 @@ int fix_networking_rootfs(struct ds_config *cfg) {
     ds_warn("Failed to link /etc/resolv.conf: %s", strerror(errno));
   }
 
-  /* 4. Android Network Groups */
+  /* 4. unprivileged ICMP sockets (modern ping fix)
+   * New network namespaces reset ping_group_range to "1 0".
+   * We set it to allow all GIDs so ping works without CAP_NET_RAW. */
+  write_file("/proc/sys/net/ipv4/ping_group_range", "0 2147483647");
+
+  /* 5. Android Network Groups */
   if (is_android()) {
     const char *etc_group = "/etc/group";
     if (access(etc_group, F_OK) == 0) {
