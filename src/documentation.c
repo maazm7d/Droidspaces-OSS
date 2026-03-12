@@ -336,6 +336,12 @@ static void print_page(int page, const char *bin) {
     printf("  %s -r rootfs/ --force-cgroupv1 start\n", bin);
     printf("  (Escape hatch: uses V1 even if V2 is available on host)\n\n");
 
+    printf("%sManual Deadlock Shield (Namespace Blocker):%s\n", bold, reset);
+    printf("  %s -r rootfs/ --block-nested-namespaces start\n", bin);
+    printf("  (Blocks unshare/clone to fix VFS deadlocks on 4.14 kernels.\n");
+    printf(
+        "   WARNING: This disables Docker/Podman inside the container.)\n\n");
+
     printf("%sEphemeral container (Volatile Mode):%s\n", bold, reset);
     printf("  %s -r /path/to/rootfs --volatile start\n", bin);
     printf("  (All changes are stored in RAM and lost on exit)\n\n");

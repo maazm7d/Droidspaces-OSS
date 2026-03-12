@@ -249,6 +249,8 @@ struct ds_config {
   int net_bridgeless;     /* Probe result: no CONFIG_BRIDGE, use PTP NAT */
   int reboot_cycle;       /* 1 if we are in a reboot loop */
   int force_cgroupv1;     /* --force-cgroupv1: use v1 even if v2 is available */
+  int block_nested_ns;    /* --block-nested-namespaces: fix VFS deadlock by
+                              blocking nested namespace creation */
   char prog_name[64];     /* argv[0] for logging */
 
   /* Runtime state */
@@ -367,7 +369,8 @@ void android_set_selinux_permissive(void);
 int android_get_selinux_status(void);
 void android_remount_data_suid(void);
 int android_setup_storage(const char *rootfs_path);
-int android_seccomp_setup(int is_systemd);
+int android_seccomp_setup(int is_systemd, int block_nested_ns);
+int ds_seccomp_apply_minimal(int hw_access);
 
 /* ---------------------------------------------------------------------------
  * mount.c

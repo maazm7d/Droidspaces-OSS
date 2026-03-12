@@ -135,6 +135,7 @@
     <string name="run_at_boot_option">Run at Boot</string>
     <string name="volatile_option">Volatile</string>
     <string name="cgroupv1_option">Cgroup V1</string>
+    <string name="deadlock_shield_option">Deadlock Shield</string>
 
     <!-- Container Details Screen -->
     <string name="container_info">Container Info</string>
@@ -167,7 +168,10 @@
     <string name="run_at_boot_description">Start container on boot</string>
     <string name="force_cgroupv1">Force Cgroup V1</string>
     <string name="force_cgroupv1_description">Force use of legacy Cgroup V1 hierarchy</string>
-    
+    <string name="manual_deadlock_shield">Manual Deadlock Shield</string>
+    <string name="manual_deadlock_shield_description">Prevents kernel-level VFS deadlocks on legacy kernels (e.g., 4.14.x) by blocking nested namespace creation.
+\n\nWARNING: Enabling this will block Docker, Podman, LXC, and Systemd sandboxing support inside the container.</string>
+
     <!-- Config Categories and Network Mode -->
     <string name="cat_networking">Networking</string>
     <string name="cat_integration">Integration &amp; Hardware</string>

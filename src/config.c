@@ -210,6 +210,8 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
       cfg->volatile_mode = parse_bool(val);
     } else if (strcmp(key, "force_cgroupv1") == 0) {
       cfg->force_cgroupv1 = parse_bool(val);
+    } else if (strcmp(key, "block_nested_ns") == 0) {
+      cfg->block_nested_ns = parse_bool(val);
     } else if (strcmp(key, "bind_mounts") == 0) {
       parse_bind_mounts(val, cfg);
     } else if (strcmp(key, "dns_servers") == 0) {
@@ -397,6 +399,7 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
   fprintf(f_out, "selinux_permissive=%d\n", cfg->selinux_permissive);
   fprintf(f_out, "volatile_mode=%d\n", cfg->volatile_mode);
   fprintf(f_out, "force_cgroupv1=%d\n", cfg->force_cgroupv1);
+  fprintf(f_out, "block_nested_ns=%d\n", cfg->block_nested_ns);
   fprintf(f_out, "foreground=%d\n", cfg->foreground);
 
   if (cfg->net_mode == DS_NET_NAT) {
@@ -549,6 +552,7 @@ void apply_reset_config(struct ds_config *cfg, int cli_net_mode_set,
   int save_existed = cfg->config_file_existed;
   struct ds_config_line *save_head = cfg->unknown_head;
   struct ds_config_line *save_tail = cfg->unknown_tail;
+  int save_block_nested_ns = cfg->block_nested_ns;
 
   safe_strncpy(save_name, cfg->container_name, sizeof(save_name));
   safe_strncpy(save_rootfs, cfg->rootfs_path, sizeof(save_rootfs));
@@ -575,6 +579,7 @@ void apply_reset_config(struct ds_config *cfg, int cli_net_mode_set,
   cfg->config_file_existed = save_existed;
   cfg->unknown_head = save_head;
   cfg->unknown_tail = save_tail;
+  cfg->block_nested_ns = save_block_nested_ns;
 
   if (cli_net_mode_set)
     cfg->net_mode = cli_net_mode;

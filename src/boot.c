@@ -114,12 +114,11 @@ int internal_boot(struct ds_config *cfg) {
   /* Detect init system once — used for seccomp and cgroup setup */
   int is_systemd = is_systemd_rootfs(cfg->rootfs_path);
 
-  /* Apply Android compatibility Seccomp filter to child processes.
-   * On legacy kernels, this neutralizes broken sandboxing logic in systemd
-   * that triggers VFS deadlocks in grab_super(). */
-  if (is_android()) {
-    android_seccomp_setup(is_systemd);
-  }
+  /* Apply Seccomp filters early for host protection.
+   * Minimal blocks kexec/module loading for all kernels/modes.
+   * Android setup handles keyring compat and manual deadlock shield. */
+  ds_seccomp_apply_minimal(cfg->hw_access);
+  android_seccomp_setup(is_systemd, cfg->block_nested_ns);
 
   /* 3. Setup volatile overlay INSIDE the container's mount namespace.
    * This MUST happen here (not in parent) so the overlay's connection to

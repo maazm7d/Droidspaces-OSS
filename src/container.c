@@ -1276,6 +1276,12 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
     if (enter_namespace(pid, cfg) < 0)
       _exit(EXIT_FAILURE);
 
+    /* Apply identical security hardening as internal_boot(). */
+    ds_log_silent = 1;
+    ds_seccomp_apply_minimal(cfg->hw_access);
+    android_seccomp_setup(is_systemd_rootfs("/"), cfg->block_nested_ns);
+    ds_log_silent = 0;
+
     /* Allocate TTY INSIDE the container namespaces */
     struct ds_tty_info tty;
     if (ds_terminal_create(&tty) < 0)
@@ -1451,6 +1457,12 @@ int run_in_rootfs(struct ds_config *cfg, int argc, char **argv) {
 
     if (enter_namespace(pid, cfg) < 0)
       _exit(EXIT_FAILURE);
+
+    /* Apply identical security hardening as internal_boot(). */
+    ds_log_silent = 1;
+    ds_seccomp_apply_minimal(cfg->hw_access);
+    android_seccomp_setup(is_systemd_rootfs("/"), cfg->block_nested_ns);
+    ds_log_silent = 0;
 
     pid_t cmd_pid = fork();
     if (cmd_pid < 0)
