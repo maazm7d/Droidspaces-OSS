@@ -61,7 +61,6 @@ What makes Droidspaces unique is its **zero-dependency, native execution** on bo
             - [Non-GKI (Legacy Kernels)](#non-GKI)
             - [GKI (Modern Kernels)](#GKI)
     - [Linux Desktop](#b-linux-desktop)
-- [Tested Platforms](#tested-platforms)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Additional Documentation](#additional-documentation)
