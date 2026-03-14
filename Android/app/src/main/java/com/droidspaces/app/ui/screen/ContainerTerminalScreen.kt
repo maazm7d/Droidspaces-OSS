@@ -120,7 +120,20 @@ fun ContainerTerminalScreen(
     }
 
     fun closeTab(tab: TerminalTab) {
-        binder?.terminateSession(tab.id)
+        // Send Ctrl+D (EOF) first so the in-container bash exits cleanly,
+        // unwinding the full su → bash chain before we SIGKILL the sh wrapper.
+        // Without this, finishIfRunning() only kills the outer sh process —
+        // su and bash survive in their own setsid() session, showing up as
+        // zombie sessions in `systemctl status`.
+        binder?.getSession(tab.id)?.write("\u0004")
+
+        // Give the EOF ~300 ms to propagate up the chain. If bash exits in
+        // time there's nothing left to SIGKILL; if not, SIGKILL cleans up
+        // whatever remains as a safety net.
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            binder?.terminateSession(tab.id)
+        }, 300)
+
         val idx = tabs.indexOf(tab)
         tabs.remove(tab)
         if (tabs.isEmpty()) onNavigateBack()

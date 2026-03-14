@@ -51,20 +51,32 @@ class TerminalSessionService : Service() {
 
         fun terminateSession(id: String) {
             runCatching {
-                sessions[id]?.apply { if (emulator != null) finishIfRunning() }
-                sessions.remove(id)
-                sessionList.remove(id)
-                globalSessionList.remove(id)
-                if (sessions.isEmpty()) stopSelf() else updateNotification()
+                // Send Ctrl+D (EOF) first so bash exits cleanly and su unwinds.
+                // SIGKILL fires 300 ms later as a safety net for anything that
+                // didn't respond in time.
+                sessions[id]?.write("\u0004")
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    runCatching {
+                        sessions[id]?.apply { if (emulator != null) finishIfRunning() }
+                        sessions.remove(id)
+                        sessionList.remove(id)
+                        globalSessionList.remove(id)
+                        if (sessions.isEmpty()) stopSelf() else updateNotification()
+                    }.onFailure { it.printStackTrace() }
+                }, 300)
             }.onFailure { it.printStackTrace() }
         }
 
         fun terminateAllSessions() {
-            sessions.values.forEach { it.finishIfRunning() }
-            sessions.clear()
-            sessionList.clear()
-            globalSessionList.clear()
-            stopSelf()
+            // EOF to all shells first - cleans up every su -> bash chain gracefully.
+            sessions.values.forEach { it.write("\u0004") }
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                sessions.values.forEach { it.finishIfRunning() }
+                sessions.clear()
+                sessionList.clear()
+                globalSessionList.clear()
+                stopSelf()
+            }, 300)
         }
 
         fun setWakeLock(acquire: Boolean) {
