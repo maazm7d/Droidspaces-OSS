@@ -883,7 +883,11 @@ static int ds_nl_rule_op(ds_nl_ctx_t *ctx, int cmd, uint32_t src_be,
   req.n.nlmsg_type = (uint16_t)cmd;
   req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
   if (cmd == RTM_NEWRULE)
-    req.n.nlmsg_flags |= NLM_F_CREATE;
+    req.n.nlmsg_flags |= NLM_F_CREATE | NLM_F_EXCL; /* EXCL: reject duplicates
+                                                     * so EEXIST is returned
+                                                     * and treated as success
+                                                     * by the idempotency
+                                                     * handler below */
 
   req.r.rtm_family = AF_INET;
   req.r.rtm_protocol = 0; /* res1 in fib_rule_hdr */
