@@ -360,14 +360,16 @@ int internal_boot(struct ds_config *cfg) {
   }
 
   /* 12b. Setup /tmp */
-  if (!is_android()) {
-    /* Desktop Linux: mount fresh tmpfs for isolation */
+  if (!is_android() || !cfg->termux_x11) {
+    /* Desktop Linux (or Android without Termux-X11): mount fresh tmpfs for
+     * isolation */
     if (domount("tmpfs", "tmp", "tmpfs", MS_NOSUID | MS_NODEV, "mode=1777") <
         0) {
       ds_warn("Failed to mount tmpfs at /tmp: %s", strerror(errno));
     }
   } else {
-    /* Android: /tmp will be handled by unified bridge after pivot_root */
+    /* Android with Termux-X11: /tmp will be handled by unified bridge after
+     * pivot_root */
     mkdir_p("tmp", 01777);
   }
 
