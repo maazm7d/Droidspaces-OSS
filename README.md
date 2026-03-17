@@ -24,22 +24,93 @@ What makes Droidspaces unique is its **zero-dependency, native execution** on bo
 
 <table align="center">
   <tr valign="top">
-    <td colspan="2" align="center">
+    <td colspan="3" align="center">
       <b>Linux Showcase</b><br>
       <i>Ubuntu + foreground mode</i><br>
       <img src="Documentation/resources/linux/linux-showcase.png" width="95%"><br><br>
     </td>
   </tr>
   <tr valign="top">
-    <td align="center" width="50%">
+    <td align="center" width="33%">
       <b>Android Home</b><br>
       <i>Beautiful home screen</i><br>
-      <img src="Documentation/resources/android/home.jpg" width="90%">
+      <img src="Documentation/resources/gallery/1-home_page.png" width="95%">
     </td>
-    <td align="center" width="50%">
+    <td align="center" width="33%">
       <b>Android Containers</b><br>
-      <i>3 containers installed in the container menu</i><br>
-      <img src="Documentation/resources/android/containers.jpg" width="90%">
+      <i>Installed in the container menu</i><br>
+      <img src="Documentation/resources/gallery/2-containers_tab.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Configuration menu</b><br>
+      <i>Hostname and Networking modes</i><br>
+      <img src="Documentation/resources/gallery/3_container_configuration.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="33%">
+      <b>Configuration menu</b><br>
+      <i>Integration & Hardware, 1st part</i><br>
+      <img src="Documentation/resources/gallery/4_container_configuration.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Configuration menu</b><br>
+      <i>Security & boot, Advanced</i><br>
+      <img src="Documentation/resources/gallery/5_container_configuration.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Logging</b><br>
+      <i>Container boot-up logs</i><br>
+      <img src="Documentation/resources/gallery/6_startup_logs.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="33%">
+      <b>Android Panel</b><br>
+      <i>Dashboard and portal access</i><br>
+      <img src="Documentation/resources/gallery/7_panel.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Container information</b><br>
+      <i>Manage the container in 1 place</i><br>
+      <img src="Documentation/resources/gallery/8_container_information.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Systemd services</b><br>
+      <i>Full systemd management</i><br>
+      <img src="Documentation/resources/gallery/9_systemd_menu.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="33%">
+      <b>User Picker</b><br>
+      <i>Summon up a terminal</i><br>
+      <img src="Documentation/resources/gallery/10_terminal_user_picker.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Terminal UI</b><br>
+      <i>Love fastfetch ? here it is !</i><br>
+      <img src="Documentation/resources/gallery/11_terminal_fastfetch.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Isolation checks</b><br>
+      <i>Demonstration of isolated mounts</i><br>
+      <img src="Documentation/resources/gallery/12_mnt_net_isolation.png" width="95%">
+    </td>
+  </tr>
+  <tr valign="top">
+    <td align="center" width="33%">
+      <b>Settings page</b><br>
+      <i>Check requirements, customization</i><br>
+      <img src="Documentation/resources/gallery/13_settings_screen.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <b>Requirements checker</b><br>
+      <i>Real-time system checks</i><br>
+      <img src="Documentation/resources/gallery/14_built_in_requirements_checker.png" width="95%">
+    </td>
+    <td align="center" width="33%">
+      <!-- Empty to balance the 3-column row -->
     </td>
   </tr>
 </table>
