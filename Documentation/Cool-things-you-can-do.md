@@ -155,8 +155,11 @@ Fail2Ban monitors your system logs and automatically blocks IP addresses that sh
    # Use UFW as the banning action
    banaction = ufw
    
-   # Whitelist your Tailscale CIDR range and specific IP to prevent lockouts
-   ignoreip = 127.0.0.1/8 ::1 100.64.0.0/10 YOUR_TAILSCALE_IP
+   # Whitelist to prevent accidental lockouts:
+   # 1. YOUR_TAILSCALE_IP: Your private tunnel address (e.g. 100.74.132.81)
+   # 2. 172.28.0.0/16: The internal Droidspaces NAT bridge (covers all containers)
+   # 3. YOUR_LAN_SUBNET: Your local Wi-Fi range if using port forwarding (e.g. if your LAN IP is 192.168.1.15, use 192.168.1.0/24)
+   ignoreip = YOUR_TAILSCALE_IP 172.28.0.0/16 YOUR_LAN_SUBNET
 
    [sshd]
    enabled = true
