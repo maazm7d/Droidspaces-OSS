@@ -7,13 +7,13 @@ Change-Id: I1ec2933c8bf1ffd970a6c07fbe8b56636d67825f
 Signed-off-by: lateautumn233 <lateautumn233@foxmail.com>
 Signed-off-by: ravindu644 <droidcasts@protonmail.com>
 ---
- kernel_platform/common/kernel/module.c | 2 +-
+ kernel/module.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-diff --git a/kernel_platform/common/kernel/module.c b/kernel_platform/common/kernel/module.c
+diff --git a/kernel/module.c b/kernel/module.c
 index bcadcef31..3794f311b 100755
---- a/kernel_platform/common/kernel/module.c
-+++ b/kernel_platform/common/kernel/module.c
+--- a/kernel/module.c
++++ b/kernel/module.c
 @@ -1289,7 +1289,7 @@ static int check_version(const struct load_info *info,
  bad_version:
  	pr_warn("%s: disagrees about version of symbol %s\n",

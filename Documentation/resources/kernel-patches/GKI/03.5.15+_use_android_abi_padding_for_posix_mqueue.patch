@@ -8,13 +8,13 @@ Signed-off-by: lateautumn233 <lateautumn233@foxmail.com>
 
 Signed-off-by: ravindu644 <droidcasts@protonmail.com>
 ---
- kernel_platform/common/include/linux/sched/user.h | 4 ++++
+ include/linux/sched/user.h | 4 ++++
  1 file changed, 4 insertions(+)
 
-diff --git a/kernel_platform/common/include/linux/sched/user.h b/kernel_platform/common/include/linux/sched/user.h
+diff --git a/include/linux/sched/user.h b/include/linux/sched/user.h
 index 037ebc053..a9259a992 100755
---- a/kernel_platform/common/include/linux/sched/user.h
-+++ b/kernel_platform/common/include/linux/sched/user.h
+--- a/include/linux/sched/user.h
++++ b/include/linux/sched/user.h
 @@ -35,7 +35,11 @@ struct user_struct {
  	/* Miscellaneous per-user rate limit */
  	struct ratelimit_state ratelimit;
