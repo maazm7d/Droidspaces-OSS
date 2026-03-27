@@ -30,7 +30,7 @@ class TerminalBackEnd(
     override fun onTitleChanged(changedSession: TerminalSession) {}
 
     override fun onSessionFinished(finishedSession: TerminalSession) {
-        // Don't auto-close — let the terminal show the exit message so the user
+        // Don't auto-close - let the terminal show the exit message so the user
         // can see what went wrong. Closed by Enter key (onKeyDown) or Back button.
         terminal.onScreenUpdated()
     }
@@ -64,7 +64,7 @@ class TerminalBackEnd(
     override fun onScale(scale: Float): Float {
         // `scale` is the accumulated pinch factor in TerminalView (per-frame deltas
         // multiplied together). Returning 1.0f resets that accumulator so the next
-        // step needs a fresh pinch — prevents runaway zooming.
+        // step needs a fresh pinch - prevents runaway zooming.
         when {
             scale > 1.08f -> {
                 currentFontSizePx = (currentFontSizePx + 1f).coerceAtMost(72f)

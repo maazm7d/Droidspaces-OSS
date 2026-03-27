@@ -302,7 +302,7 @@ fun MainTabScreen(
                         onRefresh = { performRefresh(TabItem.Containers) }
                     )
                 }
- 
+
                 TabItem.ControlPanel -> {
                     ControlPanelTabContent(
                         isBackendAvailable = isBackendAvailable,

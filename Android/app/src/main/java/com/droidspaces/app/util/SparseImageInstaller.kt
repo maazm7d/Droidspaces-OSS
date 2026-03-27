@@ -52,7 +52,7 @@ object SparseImageInstaller {
             // 2b. Reclaim reserved blocks (tune2fs -m 0)
             logger.i("[SPARSE] Reclaiming reserved disk space (tune2fs -m 0)...")
             runRootCommand("tune2fs -m 0 \"$imgPath\"", logger)
-            
+
             // 2c. Verify with e2fsck
             logger.i("[SPARSE] Verifying filesystem integrity (e2fsck)...")
             val checkResult = Shell.cmd("e2fsck -fy \"$imgPath\"").exec()
@@ -81,7 +81,7 @@ object SparseImageInstaller {
             val mountOptions = "loop,rw,nodelalloc,noatime,nodiratime,init_itable=0"
             val mountCmd = "${Constants.BUSYBOX_BINARY_PATH} mount -t ext4 -o $mountOptions \"$imgPath\" \"$mountPoint\" || " +
                           "mount -t ext4 -o $mountOptions \"$imgPath\" \"$mountPoint\""
-            
+
             runRootCommand(mountCmd, logger) ?: throw Exception("Failed to mount sparse image. Your kernel might not support loop mounts here.")
 
             try {
@@ -93,7 +93,7 @@ object SparseImageInstaller {
                 } else {
                     "cd \"$mountPoint\" && ${Constants.BUSYBOX_BINARY_PATH} tar -xzpf \"${tarball.absolutePath}\" 2>&1"
                 }
-                
+
                 // For extraction, we stream the output to the logger's debug level
                 val extractResult = Shell.cmd(extractCmd).exec()
                 if (!extractResult.isSuccess) {
@@ -109,10 +109,10 @@ object SparseImageInstaller {
                 logger.i("[SPARSE] Unmounting sparse image...")
                 Shell.cmd("${Constants.BUSYBOX_BINARY_PATH} sync").exec()
                 delay(1000)
-                
+
                 val umountCmd = "${Constants.BUSYBOX_BINARY_PATH} umount -l \"$mountPoint\" || umount -l \"$mountPoint\""
                 Shell.cmd(umountCmd).exec()
-                
+
                 // Cleanup mount point directory
                 Shell.cmd("rmdir \"$mountPoint\"").exec()
             }
@@ -148,9 +148,9 @@ object SparseImageInstaller {
                 }
             }
             Shell.cmd("chmod 755 \"${postFixScriptFile.absolutePath}\"").exec()
-            
+
             val result = Shell.cmd("BUSYBOX_PATH=${Constants.BUSYBOX_BINARY_PATH} \"${postFixScriptFile.absolutePath}\" \"$rootfs\" 2>&1").exec()
-            
+
             result.out.forEach { line ->
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
@@ -161,7 +161,7 @@ object SparseImageInstaller {
                     }
                 }
             }
-            
+
             if (!result.isSuccess) {
                 logger.w("Warning: Post-extraction fixes failed, but continuing.")
             } else {

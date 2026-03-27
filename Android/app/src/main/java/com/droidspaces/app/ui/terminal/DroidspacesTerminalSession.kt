@@ -11,7 +11,7 @@ import com.termux.terminal.TerminalSessionClient
  * ── How TerminalSession passes args to execvp ────────────────────────────────
  *
  * termux.c JNI creates:  execvp(shellPath, argv)
- * where argv IS the Java args array — shellPath is NOT prepended as argv[0].
+ * where argv IS the Java args array - shellPath is NOT prepended as argv[0].
  *
  * Therefore args[0] MUST be the shell path (argv[0] convention), otherwise:
  *   args = ["-c", "cmd"]  →  execvp(sh, ["-c", "cmd"])
@@ -38,7 +38,7 @@ object DroidspacesTerminalSession {
         containerUser: String? = null,
     ): TerminalSession {
         return if (containerName != null) {
-            // Escape any literal " in the container name — it sits inside "..." in the su payload.
+            // Escape any literal " in the container name - it sits inside "..." in the su payload.
             val escapedName = containerName.replace("\"", "\\\"")
             val user = containerUser ?: "root"
 
@@ -48,7 +48,7 @@ object DroidspacesTerminalSession {
             TerminalSession(
                 /* shell      = */ "/system/bin/sh",
                 /* workingDir = */ "/sdcard",
-                // args[0] MUST be the shell path — the JNI uses args directly as argv,
+                // args[0] MUST be the shell path - the JNI uses args directly as argv,
                 // it does NOT prepend shellPath as argv[0].
                 /* args       = */ arrayOf("/system/bin/sh", "-c", shArg),
                 /* env        = */ buildEnv().toTypedArray(),

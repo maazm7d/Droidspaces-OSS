@@ -1,4 +1,4 @@
-# Droidspaces v5 — Build system
+# Droidspaces v5 - Build system
 # Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -9,10 +9,10 @@ OUT_DIR     = output
 # Get version from header
 VERSION := $(shell grep "DS_VERSION" $(SRC_DIR)/droidspace.h | awk '{print $$3}' | tr -d '"')
 
-# Parallel jobs — use all available CPU cores
+# Parallel jobs - use all available CPU cores
 NPROC := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo 4)
 
-# Verbose control — V=1 shows full commands, V=0 (default) shows kernel-style short logs
+# Verbose control - V=1 shows full commands, V=0 (default) shows kernel-style short logs
 V ?= 0
 ifeq ($(V),1)
   Q       =
@@ -50,7 +50,7 @@ SRCS = $(SRC_DIR)/main.c \
        $(SRC_DIR)/daemon.c \
        $(SRC_DIR)/check.c
 
-# Compiler flags — hardened warning set, all warnings are errors
+# Compiler flags - hardened warning set, all warnings are errors
 CFLAGS  = -Wall -Wextra -Wpedantic -Werror -O2 -flto=auto -std=gnu99 -I$(SRC_DIR) -no-pie -pthread
 CFLAGS += -Wformat=2 -Wformat-security -Wformat-overflow=2 -Wformat-truncation=2
 CFLAGS += -Wnull-dereference -Wcast-qual -Wlogical-op -Wshadow -Wdouble-promotion -Wundef
@@ -64,7 +64,7 @@ ARCH := $(shell $(CC) -dumpmachine 2>/dev/null | cut -d'-' -f1 | \
         sed 's/x86_64/x86_64/; s/aarch64/aarch64/; s/i686/x86/; \
              s/armv7l/armhf/; s/^arm/armhf/; s/unknown/x86_64/' || echo "x86_64")
 
-# Per-arch object directory — prevents collisions when building multiple archs
+# Per-arch object directory - prevents collisions when building multiple archs
 OBJ_DIR = $(OUT_DIR)/.obj/$(ARCH)
 OBJS    = $(SRCS:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
 
@@ -115,7 +115,7 @@ $(OUT_DIR):
 $(OBJ_DIR):
 	$(Q)mkdir -p $(OBJ_DIR)
 
-# Compile each source file to an object — runs in parallel via -j$(NPROC)
+# Compile each source file to an object - runs in parallel via -j$(NPROC)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c | $(OBJ_DIR)
 	$(msg_cc)
 	$(Q)$(CC) $(CFLAGS) -c $< -o $@
@@ -195,7 +195,7 @@ sync-android:
 		cp -r $(OUT_DIR)/* $(ANDROID_ASSETS_DIR)/ && echo "[+] Synced binaries to Android assets"; \
 	fi
 
-# all-build: fail immediately if any architecture fails — no || fallback
+# all-build: fail immediately if any architecture fails - no || fallback
 all-build:
 	@echo "[*] Building for all architectures ($(NPROC) jobs each)..."
 	@rm -rf $(OUT_DIR)
@@ -238,4 +238,3 @@ all-tarball: all-build
 clean:
 	@rm -rf $(OUT_DIR) $(BINARY_NAME)-*.tar.gz
 	@echo "[+] Cleaned build artifacts"
-	

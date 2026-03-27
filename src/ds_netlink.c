@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Pure-C RTNETLINK client: link, address, route, and policy-rule management.
  * Replaces all `ip link/addr/route/rule` shell invocations.
@@ -20,7 +20,7 @@
 #include <sys/socket.h>
 
 /* ---------------------------------------------------------------------------
- * Netlink rule attributes (linux/fib_rules.h — not always in Android sysroot)
+ * Netlink rule attributes (linux/fib_rules.h - not always in Android sysroot)
  * ---------------------------------------------------------------------------*/
 #ifndef FRA_DST
 #define FRA_DST 1      /* destination address */
@@ -174,7 +174,7 @@ static int ds_nl_talk(ds_nl_ctx_t *ctx, struct nlmsghdr *req) {
  *   2. Bridge devices        (CONFIG_BRIDGE)
  *   3. Veth pairs            (CONFIG_VETH)
  *
- * Does NOT test iptables nat — that has a separate binary fallback path.
+ * Does NOT test iptables nat - that has a separate binary fallback path.
  *
  * Returns 0 if all supported.
  * Returns -1 and writes a human-readable reason into reason[rsz].
@@ -205,7 +205,7 @@ int ds_nl_probe_nat_capability(char *reason, size_t rsz) {
   if (ret < 0) {
     if (ret == -EOPNOTSUPP) {
       has_bridge = 0;
-      ds_log("[NET] CONFIG_BRIDGE not supported — will fallback to bridgeless "
+      ds_log("[NET] CONFIG_BRIDGE not supported - will fallback to bridgeless "
              "NAT");
     } else {
       snprintf(reason, rsz, "Bridge probe failed unexpectedly: %s",
@@ -277,7 +277,7 @@ int ds_nl_link_exists(ds_nl_ctx_t *ctx, const char *ifname) {
 
 /* ---------------------------------------------------------------------------
  * Get interface index by name
- * (uses if_nametoindex — one ioctl, no netlink round-trip needed)
+ * (uses if_nametoindex - one ioctl, no netlink round-trip needed)
  * ---------------------------------------------------------------------------*/
 
 int ds_nl_get_ifindex(ds_nl_ctx_t *ctx, const char *ifname) {
@@ -310,7 +310,7 @@ int ds_nl_create_bridge(ds_nl_ctx_t *ctx, const char *name) {
   nl_nest_end(&req.n, linfo);
 
   int ret = ds_nl_talk(ctx, &req.n);
-  /* -EEXIST means bridge already present — idempotent */
+  /* -EEXIST means bridge already present - idempotent */
   return (ret == 0 || ret == -EEXIST) ? 0 : ret;
 }
 
@@ -318,7 +318,7 @@ int ds_nl_create_bridge(ds_nl_ctx_t *ctx, const char *name) {
  * Create veth pair
  *
  * The VETH_INFO_PEER attribute wraps a full struct ifinfomsg header followed
- * by IFLA_* sub-attributes — exactly as iproute2/ip/link_veth.c does it.
+ * by IFLA_* sub-attributes - exactly as iproute2/ip/link_veth.c does it.
  * We write the ifinfomsg directly at NLMSG_TAIL (it is NOT an rtattr payload)
  * then append IFLA_IFNAME as a normal sub-rtattr.
  * ---------------------------------------------------------------------------*/
@@ -448,7 +448,7 @@ int ds_nl_link_down(ds_nl_ctx_t *ctx, const char *ifname) {
 }
 
 /* ---------------------------------------------------------------------------
- * Delete a link by name (idempotent — ENODEV/ENOENT treated as success)
+ * Delete a link by name (idempotent - ENODEV/ENOENT treated as success)
  * ---------------------------------------------------------------------------*/
 
 int ds_nl_del_link(ds_nl_ctx_t *ctx, const char *ifname) {
@@ -610,7 +610,7 @@ void ds_nl_flush_stale_veths(ds_nl_ctx_t *ctx, const char *prefix) {
   req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_DUMP;
   req.i.ifi_family = AF_UNSPEC;
 
-  /* Manual send (not ds_nl_talk) — DUMP responses don't have ACK semantics */
+  /* Manual send (not ds_nl_talk) - DUMP responses don't have ACK semantics */
   req.n.nlmsg_seq = ++ctx->seq;
   req.n.nlmsg_pid = (uint32_t)ctx->pid;
   if (send(ctx->fd, &req, req.n.nlmsg_len, 0) < 0)

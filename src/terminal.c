@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -166,7 +166,7 @@ int ds_terminal_proxy(int master_fd) {
   char buf[8192];
 
   /* NOTE: Do NOT set O_NONBLOCK on STDIN or master_fd here.
-   * This is an epoll-driven loop — read() is only called after epoll_wait()
+   * This is an epoll-driven loop - read() is only called after epoll_wait()
    * signals readability, so it will never block.  O_NONBLOCK causes read() to
    * return -1 EAGAIN between events, which the n<=0 EOF check then
    * misinterprets as a hangup, closes master_fd, and sends EIO to the slave

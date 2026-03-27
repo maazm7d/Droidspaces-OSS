@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -167,7 +167,7 @@ enum ds_net_mode {
   DS_NET_NONE,     /* isolated netns with loopback only          */
 };
 
-/* Opaque RTNETLINK context — defined in ds_netlink.c */
+/* Opaque RTNETLINK context - defined in ds_netlink.c */
 typedef struct ds_nl_ctx ds_nl_ctx_t;
 
 /* Handshake payload: Monitor → init via net_done_pipe */
@@ -229,7 +229,7 @@ struct ds_config_line {
   struct ds_config_line *next;
 };
 
-/* Terminal/TTY info — one per allocated PTY */
+/* Terminal/TTY info - one per allocated PTY */
 
 struct ds_tty_info {
   int master;          /* master fd (stays in parent/monitor) */
@@ -237,7 +237,7 @@ struct ds_tty_info {
   char name[PATH_MAX]; /* slave device path (e.g. /dev/pts/3) */
 };
 
-/* Container configuration — replaces all global variables */
+/* Container configuration - replaces all global variables */
 /* ---------------------------------------------------------------------------
  * Port forwarding (--port HOST:CONTAINER[/proto])
  * ---------------------------------------------------------------------------*/
@@ -516,7 +516,7 @@ int ds_nl_del_rule4(ds_nl_ctx_t *ctx, uint32_t src_be, uint8_t src_len,
 void ds_nl_flush_stale_veths(ds_nl_ctx_t *ctx, const char *prefix);
 int ds_nl_count_ifaces_with_prefix(ds_nl_ctx_t *ctx, const char *prefix);
 int ds_nl_list_ifaces(ds_nl_ctx_t *ctx, char names[][IFNAMSIZ], int max);
-/* Kernel capability probe — call before any NAT setup */
+/* Kernel capability probe - call before any NAT setup */
 int ds_nl_probe_nat_capability(char *reason, size_t rsz);
 
 /* ---------------------------------------------------------------------------

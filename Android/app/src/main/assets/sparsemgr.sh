@@ -361,7 +361,7 @@ _to_mb() {
         M*) echo "${val%.*}" ;;
         K*) _awk_calc "$val / 1024" ;;
         B*) _awk_calc "$val / 1048576" ;;
-        *) echo "${val%.*}" ;; 
+        *) echo "${val%.*}" ;;
     esac
 }
 
@@ -423,7 +423,7 @@ cmd_resize() {
     actual_mb=$(_to_mb "$actual_size")
     min_safe_mb=$(_awk_calc "($actual_mb * 1.15) + 512")
     min_safe_gb=$(_awk_calc "$min_safe_mb / 1024")
-    
+
     # Ensure at minimum 4GB
     [ "$min_safe_gb" -lt 4 ] && min_safe_gb=4
 

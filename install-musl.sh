@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-musl.sh — Cross-compilation toolchain installer for Droidspaces
+# install-musl.sh - Cross-compilation toolchain installer for Droidspaces
 # Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
 
 set -e
@@ -93,7 +93,7 @@ make clean 2>/dev/null || true
 
 # We use the default config, but specify the TARGET.
 # IMPORTANT:
-# 1. We override DL_CMD to include a User-Agent. GNU mirrors (ftpmirror) 
+# 1. We override DL_CMD to include a User-Agent. GNU mirrors (ftpmirror)
 #    often 403 block plain wget requests.
 # 2. We use OUTPUT instead of PREFIX. In musl-cross-make, 'make install'
 #    installs into the directory specified by OUTPUT.

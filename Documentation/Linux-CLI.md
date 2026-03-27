@@ -15,13 +15,13 @@ Complete guide to using Droidspaces from the command line on Linux.
 
 ## Quick Navigation
 
-[1. Getting Started](#getting-started)  
-[2. Command Reference](#command-reference)  
-[3. Options & Flags](#options-flags)  
-[4. Configuration Files](#configs)  
-[5. Common Workflows](#common-workflows)  
-[6. Advanced Usage & Lifecycle](#advanced-usage)  
-[7. System Requirements](#system-requirements)  
+[1. Getting Started](#getting-started)
+[2. Command Reference](#command-reference)
+[3. Options & Flags](#options-flags)
+[4. Configuration Files](#configs)
+[5. Common Workflows](#common-workflows)
+[6. Advanced Usage & Lifecycle](#advanced-usage)
+[7. System Requirements](#system-requirements)
 
 ---
 
@@ -138,13 +138,13 @@ sudo droidspaces --name=web,db,app stop
 <a id="configs"></a>
 ## 4. Configuration Files
 
-Instead of relying solely on long command-line arguments, Droidspaces allows you to define container environments in a `.config` file and load it using `--conf=./myconfig.config`. 
+Instead of relying solely on long command-line arguments, Droidspaces allows you to define container environments in a `.config` file and load it using `--conf=./myconfig.config`.
 
 Below is a reference of every supported key in the configuration file:
 
 ```ini
 # Droidspaces Container Configuration
-# Generated automatically — Changes may be overwritten
+# Generated automatically - Changes may be overwritten
 
 # Unique identifier for the container
 name=ubuntu
@@ -195,7 +195,7 @@ foreground=0
 
 # ----------------------------------------
 # Android App Configuration
-# Any lines that the CLI engine does not recognize will be safely 
+# Any lines that the CLI engine does not recognize will be safely
 # preserved at the bottom of the config file and passed back to the Host.
 ```
 

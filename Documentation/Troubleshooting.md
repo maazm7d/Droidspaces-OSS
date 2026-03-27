@@ -206,7 +206,7 @@ chcon u:object_r:vold_data_file:s0 /path/to/rootfs.img
 
 **Cause:** On Android, the `/data/local/Droidspaces/Containers` directory often receives a generic SELinux context. This causes the kernel to block or silently interfere with advanced filesystem operations (like creating certain symlinks or special files) when running in **Directory-based mode** (`--rootfs=/path/to/dir`). Because every file and symlink inside the directory tree is exposed directly to the host filesystem, Android's SELinux policy can relabel or restrict individual entries, corrupting the internal Linux filesystem's expected layout.
 
-**Recommended Solution:** Move to **rootfs.img mode** (`--rootfs-img=/path/to/rootfs.img`).  
+**Recommended Solution:** Move to **rootfs.img mode** (`--rootfs-img=/path/to/rootfs.img`).
 
 In this mode, the rootfs is stored as a standalone ext4 image and loop-mounted at runtime. SELinux xattr labels for files inside the image are encapsulated within the image's own filesystem metadata, so Android's policy engine cannot relabel or conflict with them. This avoids the core problem of the host assigning a generic context to every file in the directory tree.
 
@@ -297,8 +297,8 @@ With `--hw-access` enabled, Droidspaces **automatically** creates GPU groups and
 
 **Cause**: Droidspaces NAT mode currently supports **IPv4 only**. If your upstream interface (e.g., `rmnet_data0`) does not have an assigned IPv4 address (common with certain ISPs that use IPv6-only APNs/networks), NAT will fail. Additionally, some mobile data interfaces may change names (e.g., `rmnet_data0` vs `rmnet_data1`) upon reconnection.
 
-**Tip: Using Wildcards**  
-To handle unpredictable interface names on mobile data, you can use wildcards in your `--upstream` configuration (e.g., `--upstream "rmnet_data*,wlan0"`). Droidspaces will automatically monitor and match any active interface that fits the pattern - in real time.
+> [!TIP]
+> **Using Wildcards:** To handle unpredictable interface names on mobile data, you can use wildcards in your `--upstream` configuration (e.g., `--upstream "rmnet_data*,wlan0"`). Droidspaces will automatically monitor and match any active interface that fits the pattern - in real time.
 
 ---
 

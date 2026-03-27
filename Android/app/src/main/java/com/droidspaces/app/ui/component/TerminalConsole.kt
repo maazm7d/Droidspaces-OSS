@@ -84,7 +84,7 @@ fun ShimmerAnimation(
  *   the in-flight spring scroll was cancelled mid-animation, freezing the terminal.
  * - logs.size + maxValue are sufficient: the final status lines appended by
  *   ContainerOperationExecutor naturally trigger both keys, so no extra trigger needed.
- * - userScrolledUp is detected via snapshotFlow which is read-only — no scroll mutation
+ * - userScrolledUp is detected via snapshotFlow which is read-only - no scroll mutation
  *   conflicts with the write path in the scroll LaunchedEffect.
  */
 @Composable
@@ -100,7 +100,7 @@ fun TerminalConsole(
     var userScrolledUp by remember { mutableStateOf(false) }
     var isAutoScrolling by remember { mutableStateOf(false) }
 
-    // Read-only observer — never mutates scroll state, so zero conflict with animations
+    // Read-only observer - never mutates scroll state, so zero conflict with animations
     LaunchedEffect(verticalScrollState) {
         snapshotFlow { verticalScrollState.value }
             .collect { value ->

@@ -34,7 +34,7 @@ class ContainerInstallationViewModel : ViewModel() {
 
     var enableHwAccess: Boolean by mutableStateOf(false)
         private set
-    
+
     var enableTermuxX11: Boolean by mutableStateOf(false)
         private set
 
@@ -46,7 +46,7 @@ class ContainerInstallationViewModel : ViewModel() {
 
     var bindMounts: List<BindMount> by mutableStateOf(emptyList())
         private set
-    
+
     var dnsServers: String by mutableStateOf("")
         private set
 

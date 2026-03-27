@@ -87,8 +87,8 @@ private fun Modifier.horizontalScrollbar(
  * Features:
  * - Fills ~92% width and ~75% height, adapting to phones, tablets, and TVs
  * - Bidirectional scrolling with visible scrollbar indicators
- * - No text wrapping — each KEY=VALUE stays on one line
- * - Fixed dialog height — never grows past its container on Enter press
+ * - No text wrapping - each KEY=VALUE stays on one line
+ * - Fixed dialog height - never grows past its container on Enter press
  * - Monospace font with placeholder hint when empty
  */
 @Composable
@@ -128,7 +128,7 @@ fun EnvironmentVariablesDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Editor area — fixed height via weight, bidirectional scroll with visible scrollbars
+                // Editor area - fixed height via weight, bidirectional scroll with visible scrollbars
                 val verticalScrollState = rememberScrollState()
                 val horizontalScrollState = rememberScrollState()
                 val textColor = MaterialTheme.colorScheme.onSurface

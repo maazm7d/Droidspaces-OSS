@@ -287,7 +287,7 @@ fun ContainerConfigScreen(
                         fontWeight = FontWeight.Bold,
                         color = if (!isUpstreamValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
-                    
+
                     if (!isUpstreamValid) {
                         Text(
                             text = context.getString(R.string.upstream_interfaces_required_error),
@@ -389,7 +389,7 @@ fun ContainerConfigScreen(
 
                                     if (availableUpstreams.isNotEmpty()) {
                                         Text(context.getString(R.string.available_system_interfaces), style = MaterialTheme.typography.labelMedium)
-                                        
+
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -420,7 +420,7 @@ fun ContainerConfigScreen(
                                             }
                                         }
                                     }
-                                    
+
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(context.getString(R.string.enter_manually), style = MaterialTheme.typography.labelMedium)
                                     OutlinedTextField(
@@ -531,7 +531,7 @@ fun ContainerConfigScreen(
 
                         val hostError = validatePortSpec(hostPort)
                         val containerError = validatePortSpec(containerPort)
-                        
+
                         var widthError: String? = null
                         if (hostError == null && containerError == null && hostPort.isNotBlank() && containerPort.isNotBlank()) {
                             if (getWidth(hostPort) != getWidth(containerPort)) {
@@ -587,7 +587,7 @@ fun ContainerConfigScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    
+
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -612,7 +612,7 @@ fun ContainerConfigScreen(
                                                 isError = hostError != null || widthError != null || overlapError != null,
                                                 supportingText = { Text(hostError ?: widthError ?: overlapError ?: "") }
                                             )
-                                            
+
                                             OutlinedTextField(
                                                 value = containerPort,
                                                 onValueChange = { if (it.isEmpty() || it.all { c -> c.isDigit() || c == '-' }) containerPort = it },
@@ -623,7 +623,7 @@ fun ContainerConfigScreen(
                                                 isError = containerError != null || widthError != null || overlapError != null,
                                                 supportingText = { Text(containerError ?: widthError ?: overlapError ?: context.getString(R.string.optional_symmetric_hint)) }
                                             )
-                                            
+
                                             ExposedDropdownMenuBox(
                                                 expanded = protoExpanded,
                                                 onExpandedChange = { protoExpanded = !protoExpanded }

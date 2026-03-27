@@ -73,7 +73,7 @@ data class ContainerInfo(
             appendLine("upstream_interfaces=${upstreamInterfaces.joinToString(",")}")
         }
         if (netMode == "nat" && portForwards.isNotEmpty()) {
-            appendLine("port_forwards=${portForwards.joinToString(",") { 
+            appendLine("port_forwards=${portForwards.joinToString(",") {
                 val mapping = if (it.containerPort != null) "${it.hostPort}:${it.containerPort}" else it.hostPort
                 "$mapping/${it.proto}"
             }}")
@@ -320,7 +320,7 @@ object ContainerManager {
                 return@withContext Pair(true, pid)
             }
         } catch (e: Exception) {
-            // Ignore errors — treat as stopped
+            // Ignore errors - treat as stopped
         }
 
         Pair(false, null)
@@ -355,7 +355,7 @@ object ContainerManager {
      * List active upstream interfaces by scanning all routing tables.
      *
      * Uses `table all` instead of the default table so that CLAT/Qualcomm
-     * devices are correctly detected — on these devices every interface has
+     * devices are correctly detected - on these devices every interface has
      * its own per-interface routing table and nothing appears in the main
      * table, so `ip route show default` returns empty.
      */

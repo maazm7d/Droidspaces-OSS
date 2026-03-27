@@ -612,7 +612,7 @@ fun EditContainerScreen(
                         fontWeight = FontWeight.Bold,
                         color = if (!isUpstreamValid) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
-                    
+
                     if (!isUpstreamValid) {
                         Text(
                             text = context.getString(R.string.upstream_interfaces_required_error),
@@ -714,7 +714,7 @@ fun EditContainerScreen(
 
                                     if (availableUpstreams.isNotEmpty()) {
                                         Text(context.getString(R.string.available_system_interfaces), style = MaterialTheme.typography.labelMedium)
-                                        
+
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -746,7 +746,7 @@ fun EditContainerScreen(
                                             }
                                         }
                                     }
-                                    
+
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(context.getString(R.string.enter_manually), style = MaterialTheme.typography.labelMedium)
                                     OutlinedTextField(
@@ -858,7 +858,7 @@ fun EditContainerScreen(
 
                         val hostError = validatePortSpec(hostPort)
                         val containerError = validatePortSpec(containerPort)
-                        
+
                         var widthError: String? = null
                         if (hostError == null && containerError == null && hostPort.isNotBlank() && containerPort.isNotBlank()) {
                             if (getWidth(hostPort) != getWidth(containerPort)) {
@@ -914,7 +914,7 @@ fun EditContainerScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    
+
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -940,7 +940,7 @@ fun EditContainerScreen(
                                                 supportingText = { Text(hostError ?: widthError ?: overlapError ?: "") },
                                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
                                             )
-                                            
+
                                             OutlinedTextField(
                                                 value = containerPort,
                                                 onValueChange = { if (it.isEmpty() || it.all { c -> c.isDigit() || c == '-' }) containerPort = it },
@@ -952,7 +952,7 @@ fun EditContainerScreen(
                                                 supportingText = { Text(containerError ?: widthError ?: overlapError ?: context.getString(R.string.optional_symmetric_hint)) },
                                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
                                             )
-                                            
+
                                             ExposedDropdownMenuBox(
                                                 expanded = protoExpanded,
                                                 onExpandedChange = { protoExpanded = !protoExpanded }

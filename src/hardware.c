@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — Hardware Access Module
+ * Droidspaces v5 - Hardware Access Module
  *
  * This module manages GPU acceleration and hardware device nodes. To keep your
  * system stable, we exclusively use "render nodes" (/dev/dri/renderD*) for GPU
@@ -639,7 +639,7 @@ int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
   if (gid_count <= 0)
     return 0;
 
-  /* Check if /etc/group exists — some minimal rootfs may not have it */
+  /* Check if /etc/group exists - some minimal rootfs may not have it */
   if (access("/etc/group", F_OK) != 0) {
     ds_warn("No /etc/group found, skipping GPU group setup");
     return 0;
@@ -788,7 +788,7 @@ int setup_gpu_groups(gid_t *gpu_gids, int gid_count) {
  * Bind mount X11 socket directory for GUI application support.
  * Supports both desktop Linux and Termux X11 (Android).
  *
- * Only the .X11-unix subdirectory is mounted — never the entire /tmp.
+ * Only the .X11-unix subdirectory is mounted - never the entire /tmp.
  * Binding /tmp causes "required key not available" errors on encrypted
  * Android devices due to FBE keyring conflicts.
  *

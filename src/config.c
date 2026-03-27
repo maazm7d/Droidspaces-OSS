@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -280,7 +280,7 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
         up_tok = strtok_r(NULL, ",", &up_saveptr);
       }
       if (up_tok)
-        ds_warn("config: too many upstream_interfaces (max %d) — extra entries "
+        ds_warn("config: too many upstream_interfaces (max %d) - extra entries "
                 "ignored",
                 DS_MAX_UPSTREAM_IFACES);
     } else if (strcmp(key, "port_forwards") == 0) {
@@ -443,10 +443,10 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
       }
       if (pf_tok)
         ds_warn(
-            "config: too many port_forwards (max %d) — extra entries ignored",
+            "config: too many port_forwards (max %d) - extra entries ignored",
             DS_MAX_PORT_FORWARDS);
     } else {
-      /* Unknown key — preserve verbatim so Android App metadata
+      /* Unknown key - preserve verbatim so Android App metadata
        * (run_at_boot, use_sparse_image, sparse_image_size_gb, etc.)
        * survives ds_config_save() unchanged. */
       add_unknown_line(cfg, line);
@@ -489,7 +489,7 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
   char temp_path[PATH_MAX];
   snprintf(temp_path, sizeof(temp_path), "%s.tmp", config_path);
 
-  /* Step 1: Skip Step 1 — we now use the in-memory preservation from
+  /* Step 1: Skip Step 1 - we now use the in-memory preservation from
    * ds_config_load. This ensures mirroring and internal backups preserve all
    * metadata. */
 
@@ -499,7 +499,7 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
     return -1;
 
   fprintf(f_out, "# Droidspaces Container Configuration\n");
-  fprintf(f_out, "# Generated automatically — Changes may be overwritten\n\n");
+  fprintf(f_out, "# Generated automatically - Changes may be overwritten\n\n");
 
   /* Write managed keys */
   if (cfg->container_name[0])

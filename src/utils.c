@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -336,7 +336,7 @@ int write_file_atomic(const char *path, const char *content) {
   if (write_file(tmp, content) < 0)
     return -1;
 
-  /* fsync before rename — ensures data hits disk on Android before reboot */
+  /* fsync before rename - ensures data hits disk on Android before reboot */
   int sync_fd = open(tmp, O_RDONLY | O_CLOEXEC);
   if (sync_fd >= 0) {
     fsync(sync_fd);
@@ -398,7 +398,7 @@ int read_file(const char *path, char *buf, size_t size) {
 }
 
 /* ---------------------------------------------------------------------------
- * UUID generation  — 32 hex chars from /dev/urandom
+ * UUID generation  - 32 hex chars from /dev/urandom
  * ---------------------------------------------------------------------------*/
 
 int generate_uuid(char *buf, size_t size) {
@@ -446,7 +446,7 @@ int generate_uuid(char *buf, size_t size) {
 }
 
 /* ---------------------------------------------------------------------------
- * PID collection — read numeric entries from /proc
+ * PID collection - read numeric entries from /proc
  * ---------------------------------------------------------------------------*/
 
 int collect_pids(pid_t **pids_out, size_t *count_out) {
@@ -1224,7 +1224,7 @@ int copy_file(const char *src, const char *dst) {
  * ticks since host boot), subtracts it from /proc/uptime, and prints
  * a human-readable uptime string.
  *
- * Works entirely from the host side — no namespace entry required.
+ * Works entirely from the host side - no namespace entry required.
  * If the container is not running, behaves like enter_rootfs and
  * run_in_rootfs: prints an error and returns -1.
  * ---------------------------------------------------------------------------*/
@@ -1251,7 +1251,7 @@ int show_container_uptime(struct ds_config *cfg) {
   }
 
   unsigned long long start_ticks = 0;
-  /* Skip the first 21 fields — field 22 is starttime in clock ticks
+  /* Skip the first 21 fields - field 22 is starttime in clock ticks
    * since host boot. */
   for (int i = 1; i <= 21; i++) {
     if (fscanf(f, "%*s") == EOF)

@@ -109,7 +109,7 @@ fun ContainerTerminalScreen(
         }
     }
 
-    // Sync UI tabs with background service reality. 
+    // Sync UI tabs with background service reality.
     // If sessions are killed externally (e.g. Notification Exit), remove them here.
     LaunchedEffect(TerminalSessionService.globalSessionList.size) {
         val currentGlobalIds = TerminalSessionService.globalSessionList.keys
@@ -140,7 +140,7 @@ fun ContainerTerminalScreen(
     fun closeTab(tab: TerminalTab) {
         // Send Ctrl+D (EOF) first so the in-container bash exits cleanly,
         // unwinding the full su → bash chain before we SIGKILL the sh wrapper.
-        // Without this, finishIfRunning() only kills the outer sh process —
+        // Without this, finishIfRunning() only kills the outer sh process -
         // su and bash survive in their own setsid() session, showing up as
         // zombie sessions in `systemctl status`.
         binder?.getSession(tab.id)?.write("\u0004")

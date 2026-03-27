@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -8,7 +8,7 @@
 #include "droidspace.h"
 
 /* ---------------------------------------------------------------------------
- * External Command Lock — CLI-only ownership
+ * External Command Lock - CLI-only ownership
  *
  * The lock represents exactly ONE thing: an external CLI command is actively
  * managing this container. ONLY the CLI parent creates/removes locks.
@@ -25,7 +25,7 @@ static void get_lock_path(const char *name, char *buf, size_t size) {
   snprintf(buf, size, "%.2048s/%.256s" DS_EXT_LOCK, get_pids_dir(), safe_name);
 }
 
-/* Create external command lock — ONLY called by CLI parent.
+/* Create external command lock - ONLY called by CLI parent.
  * Returns: 0 on success, -1 if lock already held by a live process. */
 static int acquire_external_lock(const char *name) {
   char lock_path[PATH_MAX];
@@ -33,12 +33,12 @@ static int acquire_external_lock(const char *name) {
 
   /* Check if lock already exists */
   if (access(lock_path, F_OK) == 0) {
-    /* Lock exists — verify if holder is still alive */
+    /* Lock exists - verify if holder is still alive */
     char buf[32];
     if (read_file(lock_path, buf, sizeof(buf)) > 0) {
       pid_t holder = (pid_t)atoi(buf);
       if (holder > 0 && holder != getpid() && kill(holder, 0) == 0) {
-        /* Lock holder is alive and NOT us — cannot acquire */
+        /* Lock holder is alive and NOT us - cannot acquire */
         ds_warn("Cannot acquire lock: held by process %d", holder);
         return -1;
       }
@@ -57,7 +57,7 @@ static int acquire_external_lock(const char *name) {
   return write_file_atomic(lock_path, pid_str);
 }
 
-/* Release external command lock — ONLY called by CLI parent.
+/* Release external command lock - ONLY called by CLI parent.
  * Verifies ownership before removing. */
 static void release_external_lock(const char *name) {
   char lock_path[PATH_MAX];
@@ -108,7 +108,7 @@ void write_plain_env_file(const char *src, const char *dst) {
   fclose(out);
 }
 
-/* Check if external command lock exists — called by monitor (READ ONLY).
+/* Check if external command lock exists - called by monitor (READ ONLY).
  * Returns: 1 if lock exists and holder is alive, 0 otherwise. */
 int is_external_lock_active(const char *name) {
   char lock_path[PATH_MAX];
@@ -117,7 +117,7 @@ int is_external_lock_active(const char *name) {
   if (access(lock_path, F_OK) != 0)
     return 0; /* No lock */
 
-  /* Lock exists — verify holder is alive */
+  /* Lock exists - verify holder is alive */
   char buf[32];
   if (read_file(lock_path, buf, sizeof(buf)) > 0) {
     pid_t holder = (pid_t)atoi(buf);
@@ -140,7 +140,7 @@ int is_external_lock_active(const char *name) {
 
 static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
                                         int skip_unmount, int force_cleanup) {
-  /* Flush filesystem buffers (skip if force cleanup — sync can hang on
+  /* Flush filesystem buffers (skip if force cleanup - sync can hang on
    * zombie-held fs) */
   if (!force_cleanup)
     sync();
@@ -242,7 +242,7 @@ int is_valid_container_pid(pid_t pid) {
 
   /* Primary marker: /run/droidspaces must exist inside the container.
    * This is the one authoritative marker written by droidspaces on boot.
-   * We do NOT require /run/systemd/container — Alpine/runit/openrc never
+   * We do NOT require /run/systemd/container - Alpine/runit/openrc never
    * write that file, causing scan to be blind to non-systemd distros. */
   if (build_proc_root_path(pid, DS_DROIDSPACES_MARKER, path, sizeof(path)) < 0)
     return 0;
@@ -272,7 +272,7 @@ int start_rootfs(struct ds_config *cfg) {
     get_lock_path(cfg->container_name, lock_path, sizeof(lock_path));
 
     if (access(lock_path, F_OK) == 0) {
-      /* This looks like a restart handoff — take ownership of the lock */
+      /* This looks like a restart handoff - take ownership of the lock */
       if (acquire_external_lock(cfg->container_name) == 0) {
         lock_acquired = 1;
 
@@ -293,7 +293,7 @@ int start_rootfs(struct ds_config *cfg) {
           safe_strncpy(cfg->img_mount_point, cfg->rootfs_path,
                        sizeof(cfg->img_mount_point));
         } else {
-          /* Mount not active — remove invalid lock */
+          /* Mount not active - remove invalid lock */
           release_external_lock(cfg->container_name);
           lock_acquired = 0;
         }
@@ -609,7 +609,7 @@ int start_rootfs(struct ds_config *cfg) {
       }
       ns_flags |= CLONE_NEWCGROUP;
     } else {
-      /* Legacy kernel without force flag — skip cgroupns, run in host
+      /* Legacy kernel without force flag - skip cgroupns, run in host
        * cgroupns with full rights so setup_cgroups() can create named
        * v1 hierarchies. */
     }
@@ -630,7 +630,7 @@ int start_rootfs(struct ds_config *cfg) {
      *   4. Monitor sees WEXITSTATUS(mid)==249 → loop back
      *
      * This eliminates ghost containers because the Monitor never handles
-     * SIGHUP — it only checks a deterministic exit code. */
+     * SIGHUP - it only checks a deterministic exit code. */
   reboot_loop:;
     /* Close existing pipes from previous cycle to prevent FD leaks */
     if (cfg->net_ready_pipe[0] >= 0) {
@@ -740,7 +740,7 @@ int start_rootfs(struct ds_config *cfg) {
         close(sync_pipe[1]);
         sync_pipe[1] = -1;
       } else {
-        /* Reboot cycle — update PID file directly so
+        /* Reboot cycle - update PID file directly so
          * 'droidspaces show/status' report the correct PID. */
         char pid_str[32];
         snprintf(pid_str, sizeof(pid_str), "%d", init_pid);
@@ -819,7 +819,7 @@ int start_rootfs(struct ds_config *cfg) {
 
         if (cfg->net_mode == DS_NET_NAT) {
           if (setup_veth_host_side(cfg, netns_pid) < 0) {
-            ds_warn("[NET] Monitor: setup_veth_host_side failed — "
+            ds_warn("[NET] Monitor: setup_veth_host_side failed - "
                     "container will have no internet");
           } else {
             /* Start the dynamic route monitor thread to handle WiFi/Mobile
@@ -898,12 +898,12 @@ int start_rootfs(struct ds_config *cfg) {
 
     /* ── Reboot detection (internal reboot) ── */
     if (WIFEXITED(status) && WEXITSTATUS(status) == DS_REBOOT_EXIT) {
-      /* Check for external lock — if exists, abort reboot and let CLI handle it
+      /* Check for external lock - if exists, abort reboot and let CLI handle it
        */
       if (is_external_lock_active(cfg->container_name)) {
         write_monitor_debug_log(
             cfg->container_name,
-            "External command lock detected — aborting internal reboot");
+            "External command lock detected - aborting internal reboot");
         goto monitor_cleanup_and_exit;
       }
 
@@ -967,15 +967,15 @@ int start_rootfs(struct ds_config *cfg) {
       goto reboot_loop;
     }
 
-    /* Not a reboot — check if external command is handling cleanup */
+    /* Not a reboot - check if external command is handling cleanup */
     if (is_external_lock_active(cfg->container_name)) {
       write_monitor_debug_log(cfg->container_name,
-                              "External command lock detected — yielding "
+                              "External command lock detected - yielding "
                               "cleanup to CLI");
       goto monitor_cleanup_and_exit;
     }
 
-    /* Normal exit — monitor does cleanup */
+    /* Normal exit - monitor does cleanup */
     write_monitor_debug_log(cfg->container_name, "Monitor performing cleanup");
 
     /* Before cleaning up the container's cgroup subtree, move the
@@ -1232,7 +1232,7 @@ int stop_rootfs(struct ds_config *cfg, int skip_unmount) {
   }
 
   /* 4. Firmware cleanup (hw_access mode only).
-   * Skip when unkillable — accessing zombie-held rootfs can hang. */
+   * Skip when unkillable - accessing zombie-held rootfs can hang. */
   if (cfg->img_mount_point[0] && !unkillable && cfg->hw_access) {
     char fw_path[PATH_MAX + 16];
     snprintf(fw_path, sizeof(fw_path), "%s/lib/firmware", cfg->img_mount_point);
@@ -1386,7 +1386,7 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
       _exit(EXIT_FAILURE);
 
     /* ---------------------------------------------------------------
-     * LXC-STYLE SESSION SETUP — intermediate becomes session leader
+     * LXC-STYLE SESSION SETUP - intermediate becomes session leader
      * ---------------------------------------------------------------
      * Ubuntu 24.04+ login (util-linux) calls vhangup() as part of its
      * "secure login" sequence: hang up the old session, reopen the
@@ -1395,13 +1395,13 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
      * vhangup() sends SIGHUP to the SESSION LEADER of the controlling
      * terminal.  In our OLD design the grandchild (bash) was the session
      * leader, so it received SIGHUP, killed login's process group, then
-     * killed itself — the terminal collapsed.
+     * killed itself - the terminal collapsed.
      *
      * THE FIX (matches lxc-attach behaviour):
      *   • The INTERMEDIATE does setsid() + TIOCSCTTY here (not the shell).
      *   • The intermediate ignores SIGHUP.
      *   • The grandchild (bash) is a child of the intermediate's session
-     *     and is therefore NOT the session leader — it never receives
+     *     and is therefore NOT the session leader - it never receives
      *     the SIGHUP that vhangup() generates.
      *   • login's vhangup() → SIGHUP → intermediate → ignored → bash lives.
      *   • login then does setsid() + open(/dev/pts/N without O_NOCTTY) to
@@ -1432,7 +1432,7 @@ int enter_rootfs(struct ds_config *cfg, const char *user) {
       _exit(EXIT_FAILURE);
     if (shell_pid == 0) {
       /* The controlling terminal and session leader were established in
-       * the intermediate (parent of this fork) — do NOT call setsid()
+       * the intermediate (parent of this fork) - do NOT call setsid()
        * or TIOCSCTTY here.  This process (bash) is a child member of
        * the intermediate's session and inherits pts/1 as its ctty.
        * Being a non-session-leader is deliberate: when the user runs

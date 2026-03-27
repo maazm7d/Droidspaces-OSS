@@ -102,7 +102,7 @@ object ContainerInstaller {
                 } else {
                     "cd \"$rootfsPath\" && $BUSYBOX_PATH tar -xzpf \"${tempTarball.absolutePath}\" 2>&1"
                 }
-                
+
                 val extractResult = Shell.cmd(extractCmd).exec()
                 if (!extractResult.isSuccess) {
                     val errorMsg = extractResult.err.joinToString("\n")
@@ -155,10 +155,10 @@ object ContainerInstaller {
                 logger.i("Writing environment variables (.env)...")
                 val envFilePath = "$containerPath/.env"
                 val tempEnvFile = File("${context.cacheDir}/.env_${sanitizedName}")
-                
+
                 try {
                     tempEnvFile.writeText(config.envFileContent + "\n")
-                    
+
                     val envCopyResult = Shell.cmd("cp \"${tempEnvFile.absolutePath}\" \"$envFilePath\" 2>&1").exec()
                     if (!envCopyResult.isSuccess) {
                         val errorMsg = envCopyResult.err.joinToString("\n")

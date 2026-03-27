@@ -130,8 +130,8 @@ fun InstallationSummaryScreen(
                     }
 
                     if (!config.enableAndroidStorage &&
-                        !config.enableHwAccess && !config.selinuxPermissive && 
-                        !config.volatileMode && config.bindMounts.isEmpty() && 
+                        !config.enableHwAccess && !config.selinuxPermissive &&
+                        !config.volatileMode && config.bindMounts.isEmpty() &&
                         !config.runAtBoot && config.envFileContent.isNullOrBlank()) {
                         Text(
                             text = "No additional options enabled",

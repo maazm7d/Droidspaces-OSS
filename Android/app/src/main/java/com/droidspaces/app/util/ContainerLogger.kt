@@ -15,7 +15,7 @@ abstract class ContainerLogger {
     abstract suspend fun w(msg: String)
 
     /**
-     * Non-suspend, synchronous log — safe to call directly from the main thread
+     * Non-suspend, synchronous log - safe to call directly from the main thread
      * (e.g. inside libsu's CallbackList.onAddElement which already runs on main).
      * Avoids the MainScope().launch antipattern which creates untracked detached coroutines.
      */

@@ -9,10 +9,10 @@ This guide explains how to safely and completely remove Droidspaces from your sy
 Follow these steps to ensure all container data and backend files are removed.
 
 1.  **Stop Containers**: Ensure all running containers are stopped from the **Containers** tab.
-2.  **Delete Containers**: 
+2.  **Delete Containers**:
     - Go to the **Containers** tab.
     - Long-press each container card and select **Uninstall Container**. This deletes the rootfs image and its configuration.
-3.  **Remove Backend Data**: 
+3.  **Remove Backend Data**:
     - Using a root file manager or a terminal (like Termux with root access), delete the following directory:
     ```bash
     su -c "rm -rf /data/local/Droidspaces"

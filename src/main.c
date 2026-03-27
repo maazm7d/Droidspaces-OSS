@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -258,11 +258,11 @@ static void enforce_nat_safety(struct ds_config *cfg, int argc, char **argv) {
 
   /* --upstream and --port are only meaningful with --net=nat */
   if (cfg->upstream_iface_count > 0 && cfg->net_mode != DS_NET_NAT) {
-    ds_warn("--upstream is only valid with --net=nat — ignoring");
+    ds_warn("--upstream is only valid with --net=nat - ignoring");
     cfg->upstream_iface_count = 0;
   }
   if (cfg->port_forward_count > 0 && cfg->net_mode != DS_NET_NAT) {
-    ds_warn("--port is only valid with --net=nat — ignoring");
+    ds_warn("--port is only valid with --net=nat - ignoring");
     cfg->port_forward_count = 0;
   }
 

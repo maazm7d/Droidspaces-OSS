@@ -28,7 +28,7 @@ jobs:
 
     - name: Fix Binary Permissions
       run: chmod +x Android/app/src/main/assets/binaries/droidspaces-*
-    
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -87,19 +87,19 @@ jobs:
         mkdir -p $HOME/toolchains
         cd $HOME/toolchains
         BASE_URL="https://github.com/ravindu644/Droidspaces-OSS/releases/download/compilers"
-        
+
         echo "[*] Downloading aarch64 toolchain..."
         wget -q $BASE_URL/aarch64-linux-musl-cross.tar.gz
-        
+
         echo "[*] Downloading armhf toolchain..."
         wget -q $BASE_URL/arm-linux-musleabihf-cross.tar.gz
-        
+
         echo "[*] Downloading x86 toolchain..."
         wget -q $BASE_URL/i686-linux-musl-cross.tar.gz
-        
+
         echo "[*] Downloading x86_64 toolchain..."
         wget -q $BASE_URL/x86_64-linux-musl-cross.tar.gz
-        
+
         echo "[*] Extracting toolchains..."
         for f in *.tar.gz; do
           echo "Extracting $f..."
@@ -135,7 +135,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: Download Artifacts
       uses: actions/download-artifact@v4
       with:
@@ -147,13 +147,13 @@ jobs:
       run: |
         PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
         echo "Previous tag: $PREV_TAG"
-        
+
         if [ -z "$PREV_TAG" ]; then
           CHANGELOG=$(git log --oneline --pretty=format:"* %s (%h)")
         else
           CHANGELOG=$(git log ${PREV_TAG}..HEAD --oneline --pretty=format:"* %s (%h)")
         fi
-        
+
         {
           echo "notes<<EOF"
           echo "$CHANGELOG"
@@ -169,7 +169,7 @@ jobs:
         body: |
           ## What's Changed
           ${{ steps.changelog.outputs.notes }}
-          
+
           ---
           **Automated Release by Droidspaces CI**
         files: |

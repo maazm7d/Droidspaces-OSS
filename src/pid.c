@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -101,7 +101,7 @@ int find_available_name(const char *base_name, char *final_name, size_t size) {
     if (access(pidfile, F_OK) != 0)
       return 0;
 
-    /* Check if it's a stale pidfile — reuse the name slot without
+    /* Check if it's a stale pidfile - reuse the name slot without
      * unlinking (the next start will overwrite it). */
     pid_t pid;
     if (read_and_validate_pid(pidfile, &pid) < 0) {
@@ -173,7 +173,7 @@ int is_container_running(struct ds_config *cfg, pid_t *pid_out) {
       if (cfg->pidfile[0] != '\0') {
         write_file_atomic(cfg->pidfile, pid_str);
       } else if (cfg->container_name[0] != '\0') {
-        /* pidfile path itself was empty — resolve and restore both */
+        /* pidfile path itself was empty - resolve and restore both */
         char restored_pidfile[PATH_MAX];
         resolve_pidfile_from_name(cfg->container_name, restored_pidfile,
                                   sizeof(restored_pidfile));
@@ -335,7 +335,7 @@ pid_t find_container_by_name(const char *name) {
     if (access(path, F_OK) != 0)
       continue;
 
-    /* Read the tiny name marker — no config parse needed */
+    /* Read the tiny name marker - no config parse needed */
     char name_marker[PATH_MAX];
     char stored_name[256] = {0};
     build_proc_root_path(pids[i], "/run/droidspaces/name", name_marker,

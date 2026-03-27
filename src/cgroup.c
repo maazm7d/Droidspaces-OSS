@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -187,11 +187,11 @@ static int is_cgroup_ns_active(void) {
 /* Returns 1 if the kernel's cgroupv2 controllers are sufficiently complete
  * for systemd. The cpu/io/memory v2 controllers only became usable in 5.2.
  * On kernels like Android 4.14, cgroup2 mounts SUCCEED but the controllers
- * are absent — systemd probes them and falls apart. */
+ * are absent - systemd probes them and falls apart. */
 int ds_cgroup_v2_usable(void) {
   int major = 0, minor = 0;
   if (get_kernel_version(&major, &minor) != 0)
-    return 0; /* unknown kernel — assume unusable, safe default */
+    return 0; /* unknown kernel - assume unusable, safe default */
   return (major > 5 || (major == 5 && minor >= 2));
 }
 
@@ -472,19 +472,19 @@ int ds_cgroup_attach(pid_t target_pid) {
      * Writing directly to init's cgroup.procs fails with EPERM on cgroupv1
      * legacy kernels (and for systemd-managed scopes on v2): the cgroup is
      * either non-leaf or systemd holds a delegation lock on it.  The correct
-     * approach — which is exactly what lxc-attach uses — is to mkdir a new
+     * approach - which is exactly what lxc-attach uses - is to mkdir a new
      * child cgroup under the target's subtree and write into THAT.  We own
      * the new directory so the write always succeeds, and the process appears
      * in the hierarchy as a proper descendant of init's cgroup rather than
      * leaking to the cgroup root ("/"). */
     /* Build: <mountpoint>/<subpath>/ds-enter-<pid>
      * subpath always starts with '/' so we skip the extra separator.
-     * Use strncat chains — snprintf of two PATH_MAX strings into one
+     * Use strncat chains - snprintf of two PATH_MAX strings into one
      * PATH_MAX buffer triggers -Wformat-truncation=2 at compile time. */
     char leaf_dir[PATH_MAX];
     char enter_suffix[32];
     safe_strncpy(leaf_dir, hosts[i].mountpoint, sizeof(leaf_dir));
-    /* subpath begins with '/', append directly — no extra '/' needed. */
+    /* subpath begins with '/', append directly - no extra '/' needed. */
     strncat(leaf_dir, subpath, sizeof(leaf_dir) - strlen(leaf_dir) - 1);
     snprintf(enter_suffix, sizeof(enter_suffix), "/ds-enter-%d", (int)getpid());
     strncat(leaf_dir, enter_suffix, sizeof(leaf_dir) - strlen(leaf_dir) - 1);
@@ -494,7 +494,7 @@ int ds_cgroup_attach(pid_t target_pid) {
     }
 
     /* 3. Move self into the leaf via cgroup.procs (moves whole process,
-     *    not just the calling thread — unlike the legacy /tasks interface). */
+     *    not just the calling thread - unlike the legacy /tasks interface). */
     char procs_path[PATH_MAX];
     safe_strncpy(procs_path, leaf_dir, sizeof(procs_path));
     strncat(procs_path, "/cgroup.procs",
@@ -564,7 +564,7 @@ void ds_cgroup_detach(pid_t child_pid) {
  * Removes the entire /sys/fs/cgroup/droidspaces/<container_name>/ subtree
  * that was created at container start for cgroup namespace isolation.
  *
- * The kernel requires a bottom-up rmdir walk — a cgroup directory can only
+ * The kernel requires a bottom-up rmdir walk - a cgroup directory can only
  * be removed after all its children are gone.  All container processes are
  * dead by the time cleanup_container_resources() calls this, so every leaf
  * is empty and the walk always succeeds.
@@ -574,7 +574,7 @@ void ds_cgroup_detach(pid_t child_pid) {
  * ---------------------------------------------------------------------------*/
 
 /* Recursive bottom-up rmdir of a cgroup subtree.  cgroup directories can
- * only be removed from the leaves upward — attempting to rmdir a non-empty
+ * only be removed from the leaves upward - attempting to rmdir a non-empty
  * cgroup returns EBUSY.
  *
  * Even after all processes exit, cgroup state is destroyed asynchronously
@@ -609,7 +609,7 @@ static void rmdir_cgroup_tree(const char *path) {
   }
   closedir(d);
 
-  /* 1. cgroup.kill — available on kernel 5.14+.
+  /* 1. cgroup.kill - available on kernel 5.14+.
    *    Writing "1" sends SIGKILL to every process in the subtree
    *    atomically, including those in dying child cgroups. */
   char kill_path[PATH_MAX];
@@ -639,13 +639,13 @@ static void rmdir_cgroup_tree(const char *path) {
     usleep(10000); /* 10 ms */
   }
 
-  /* 3. rmdir with retry — handles residual dying descendants on older
+  /* 3. rmdir with retry - handles residual dying descendants on older
    *    kernels that lack cgroup.kill.  10 attempts × 20 ms = 200 ms max. */
   for (int attempt = 0; attempt < 10; attempt++) {
     if (rmdir(path) == 0 || errno == ENOENT)
       return;
     if (errno != EBUSY)
-      return;      /* unexpected error — give up */
+      return;      /* unexpected error - give up */
     usleep(20000); /* 20 ms */
   }
 }

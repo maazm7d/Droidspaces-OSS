@@ -61,7 +61,7 @@ The **Panel** tab focuses strictly on your running containers. Tapping a running
 This screen provides deep introspection into the running environment:
 - **Distribution Info**: Shows the Pretty Name, Version, Hostname, and **IP Address (IPv4)**.
 - **Available Users**: Lists detected users in the rootfs.
-- **Copy Login**: Choose a user from the dropdown and tap this to copy a command like `su -c 'droidspaces enter [user]'`. 
+- **Copy Login**: Choose a user from the dropdown and tap this to copy a command like `su -c 'droidspaces enter [user]'`.
 - **Terminal**: Open an interactive Terminal Emulator inside from the container, natively on the Droidspaces app !
 - **Systemd Menu**: If the container uses systemd, a "Manage" button appears. Tapping it opens a list of all systemd services, allowing you to Start, Stop, or Restart individual services (e.g., SSH, Nginx, or a VNC server) directly from the app.
 

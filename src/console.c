@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -156,7 +156,7 @@ int console_monitor_loop(int master_fd, pid_t monitor_pid,
           int status;
           pid_t child = waitpid(monitor_pid, &status, WNOHANG);
           if (child == monitor_pid) {
-            /* Monitor exited — container is fully done */
+            /* Monitor exited - container is fully done */
             running = 0;
           }
         } else if (fdsi.ssi_signo == SIGWINCH) {

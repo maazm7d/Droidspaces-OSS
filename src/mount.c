@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -95,7 +95,7 @@ int domount(const char *src, const char *tgt, const char *fstype,
   return 0;
 }
 
-/* Like domount but logs failures at [DEBUG] level — used for best-effort
+/* Like domount but logs failures at [DEBUG] level - used for best-effort
  * mounts where failure is expected on some devices (e.g. cgroup bind-mounts
  * on ROMs with non-standard controller paths). */
 int domount_silent(const char *src, const char *tgt, const char *fstype,
@@ -201,7 +201,7 @@ int bind_mount(const char *src, const char *tgt) {
 
   if (stat(tgt, &st_tgt) < 0) {
     if (S_ISDIR(st_src.st_mode)) {
-      /* CRITICAL: Match source permissions — never hardcode 0755.
+      /* CRITICAL: Match source permissions - never hardcode 0755.
        * the kernel overlays the source transparently. */
       mkdir(tgt, st_src.st_mode & 07777);
       if (chown(tgt, st_src.st_uid, st_src.st_gid) < 0) {
@@ -716,7 +716,7 @@ int check_volatile_mode(struct ds_config *cfg) {
     return -1;
   }
 
-  /* Pre-flight: reject f2fs lowerdir — known Android kernel limitation */
+  /* Pre-flight: reject f2fs lowerdir - known Android kernel limitation */
   struct statfs sfs;
   if (statfs(cfg->rootfs_path, &sfs) == 0 && sfs.f_type == 0xF2F52010) {
     ds_error("Volatile mode cannot be used: Your rootfs is on f2fs, which is "
@@ -790,7 +790,7 @@ int setup_volatile_overlay(struct ds_config *cfg) {
 }
 
 /**
- * is_mount_in_namespace() — Check if `path` is mounted in OUR namespace.
+ * is_mount_in_namespace() - Check if `path` is mounted in OUR namespace.
  *
  * Reads /proc/self/mountinfo and searches for an exact match of `path`
  * in the mount-point column (field 5, 0-indexed: 4).
@@ -834,7 +834,7 @@ static int is_mount_in_namespace(const char *path) {
 }
 
 /**
- * cleanup_volatile_overlay() — Simplified OverlayFS cleanup.
+ * cleanup_volatile_overlay() - Simplified OverlayFS cleanup.
  *
  * The overlay is mounted INSIDE the container's mount namespace (boot.c).
  * When the container dies, the kernel tears down the namespace and the
@@ -850,7 +850,7 @@ int cleanup_volatile_overlay(struct ds_config *cfg) {
   char merged[PATH_MAX + 32];
   snprintf(merged, sizeof(merged), "%s/merged", cfg->volatile_dir);
 
-  /* Skip logging for clean exits — nothing prints after 'Powering off.' */
+  /* Skip logging for clean exits - nothing prints after 'Powering off.' */
 
   /* 1. Fast path: check if mounts already vanished (normal case) */
   if (!is_mount_in_namespace(merged) &&

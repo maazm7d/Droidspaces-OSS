@@ -143,7 +143,7 @@ fun FilePickerDialog(
                 }
                 if (exists) {
                     currentPath = targetDir
-                    // Don't reset searchQuery here — keep the filter active
+                    // Don't reset searchQuery here - keep the filter active
                     isLoading = true
                     items = fetchItems(targetDir, showFiles)
                     isLoading = false
@@ -204,7 +204,7 @@ fun FilePickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Search bar — filters or navigates when an absolute path is typed
+                // Search bar - filters or navigates when an absolute path is typed
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -237,7 +237,7 @@ fun FilePickerDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // File list area — fills remaining space with visible scrollbar
+                // File list area - fills remaining space with visible scrollbar
                 val listState = rememberLazyListState()
                 val scrollbarColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
 
@@ -360,7 +360,7 @@ private fun FileItemRow(
             )
         }
         Spacer(modifier = Modifier.width(16.dp))
-        // Horizontally scrollable file name — no truncation
+        // Horizontally scrollable file name - no truncation
         val nameScrollState = rememberScrollState()
         Box(
             modifier = Modifier

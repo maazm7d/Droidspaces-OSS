@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Network configuration: DNS, host-side setup, rootfs-side setup,
  * veth pair management, and network cleanup.
@@ -58,7 +58,7 @@ static void veth_peer_ip(pid_t pid, char *buf, size_t sz) {
 }
 
 /* ---------------------------------------------------------------------------
- * Upstream routing globals — shared by android routing setup and monitor
+ * Upstream routing globals - shared by android routing setup and monitor
  * ---------------------------------------------------------------------------*/
 
 static char g_upstream_ifaces[DS_MAX_UPSTREAM_IFACES][IFNAMSIZ];
@@ -425,7 +425,7 @@ int fix_networking_host(struct ds_config *cfg) {
  * rules distinguish which is active, and parsing those rules was fragile.
  * ---------------------------------------------------------------------------*/
 
-/* Forward declaration — defined later in this file after route monitor globals
+/* Forward declaration - defined later in this file after route monitor globals
  */
 static int find_active_upstream(ds_nl_ctx_t *ctx, char *iface_out,
                                 int *table_out);
@@ -462,7 +462,7 @@ static void ds_net_setup_android_routing(ds_nl_ctx_t *ctx,
             DS_RULE_PRIO_TO_SUBNET);
 
   if (!active_iface[0]) {
-    ds_warn("[NET] Android routing: no upstream interface is active yet — "
+    ds_warn("[NET] Android routing: no upstream interface is active yet - "
             "route monitor will install rule when one comes up");
     return;
   }
@@ -668,7 +668,7 @@ int setup_veth_host_side(struct ds_config *cfg, pid_t child_pid) {
     return -1;
   }
 
-  /* Read peer MAC now — after ds_nl_move_to_netns the interface is inside the
+  /* Read peer MAC now - after ds_nl_move_to_netns the interface is inside the
    * container netns and invisible to host-side ioctl(SIOCGIFHWADDR). */
   uint8_t peer_mac[6] = {0};
   {
@@ -699,7 +699,7 @@ int setup_veth_host_side(struct ds_config *cfg, pid_t child_pid) {
   }
   ds_log("[DEBUG] Successfully moved %s to PID %d", veth_peer, (int)child_pid);
 
-  /* 7. Android policy routing — uses the user-declared upstream interfaces */
+  /* 7. Android policy routing - uses the user-declared upstream interfaces */
   if (is_android()) {
     ds_net_setup_android_routing(ctx,
                                  (const char (*)[IFNAMSIZ])cfg->upstream_ifaces,
@@ -721,11 +721,11 @@ int setup_veth_host_side(struct ds_config *cfg, pid_t child_pid) {
    * rule churn, no "wrong IP" on the first DHCP renew.
    *
    * Binding interface depends on topology:
-   *   Bridge mode    — bind to ds-br0.  veth_host is a bridge slave; the
+   *   Bridge mode    - bind to ds-br0.  veth_host is a bridge slave; the
    *                    kernel delivers frames from the container upward to
    *                    the bridge interface, not the slave.  A socket bound
    *                    to the slave would never see the DHCP DISCOVERs.
-   *   Bridgeless mode — bind to veth_host directly (point-to-point veth,
+   *   Bridgeless mode - bind to veth_host directly (point-to-point veth,
    *                    no bridge in the path). */
   {
     struct in_addr offer_in;
@@ -788,11 +788,11 @@ int setup_veth_child_side_named(struct ds_config *cfg, const char *peer_name,
   /* 1. Loopback */
   ds_nl_link_up(ctx, "lo");
 
-  /* 2. Bring eth0 UP — the container's DHCP client configures IP and route */
+  /* 2. Bring eth0 UP - the container's DHCP client configures IP and route */
   ds_nl_link_up(ctx, "eth0");
 
   ds_nl_close(ctx);
-  ds_log("[NET] Child: eth0 UP — awaiting DHCP lease from monitor");
+  ds_log("[NET] Child: eth0 UP - awaiting DHCP lease from monitor");
   return 0;
 }
 
@@ -842,7 +842,7 @@ int fix_networking_rootfs(struct ds_config *cfg) {
    *
    * NAT mode without --dns:  write "nameserver 172.28.0.1" so every DNS query
    * from inside the container goes to the proxy running on the bridge gateway.
-   * The proxy dynamically discovers and tracks the real upstream DNS — the
+   * The proxy dynamically discovers and tracks the real upstream DNS - the
    * container's resolv.conf never needs to change when interfaces switch.
    *
    * NAT mode with --dns / host mode / none mode:  write the explicit servers
@@ -939,8 +939,8 @@ int detect_ipv6_in_container(pid_t pid) {
  * a default route) and atomically updates the policy rule.
  *
  * Event triggers:
- *   RTM_NEWLINK / RTM_DELLINK — interface state change (UP/RUNNING/DOWN)
- *   RTM_NEWADDR / RTM_DELADDR — IPv4 address assigned or removed
+ *   RTM_NEWLINK / RTM_DELLINK - interface state change (UP/RUNNING/DOWN)
+ *   RTM_NEWADDR / RTM_DELADDR - IPv4 address assigned or removed
  *
  * 30-second heartbeat covers devices with broken netlink notifications.
  * ---------------------------------------------------------------------------*/
@@ -950,12 +950,12 @@ int detect_ipv6_in_container(pid_t pid) {
  *
  * Entries without wildcards are checked directly (fast path).
  * Entries containing '*' or '?' are expanded via a full RTM_GETLINK dump
- * and matched with fnmatch() — this handles dynamic interface names like
+ * and matched with fnmatch() - this handles dynamic interface names like
  * "*rmnet_data*" or "v4-rmnet_data*" on Qualcomm/CLAT devices where the
  * interface number changes on every reboot.
  *
  * Each wildcard pattern slot remembers the interface it last resolved to.
- * A discovery log fires only when the resolved name changes — this handles
+ * A discovery log fires only when the resolved name changes - this handles
  * cleanup (dead interfaces are overwritten), prevents log spam on heartbeat
  * reprobes, and uses zero dynamic allocation. */
 
@@ -1076,7 +1076,7 @@ static void do_upstream_reprobe(void) {
   int new_table = 0;
 
   if (find_active_upstream(ctx, new_iface, &new_table) != 0) {
-    /* No upstream active yet — leave current rule in place */
+    /* No upstream active yet - leave current rule in place */
     ds_nl_close(ctx);
     return;
   }
@@ -1149,8 +1149,8 @@ static void *route_monitor_loop(void *arg) {
   struct sockaddr_nl sa;
   memset(&sa, 0, sizeof(sa));
   sa.nl_family = AF_NETLINK;
-  /* RTMGRP_LINK     — interface state changes (IFF_RUNNING, link up/down)
-   * RTMGRP_IPV4_IFADDR — IPv4 address add/remove on upstream interfaces */
+  /* RTMGRP_LINK     - interface state changes (IFF_RUNNING, link up/down)
+   * RTMGRP_IPV4_IFADDR - IPv4 address add/remove on upstream interfaces */
   sa.nl_groups = RTMGRP_LINK | RTMGRP_IPV4_IFADDR;
 
   if (bind(sock, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
@@ -1307,11 +1307,11 @@ void ds_net_cleanup(struct ds_config *cfg, pid_t container_pid) {
   if (!ctx)
     return;
 
-  /* 1. Delete host-side veth — peer in dead netns is already gone */
+  /* 1. Delete host-side veth - peer in dead netns is already gone */
   char veth_host[IFNAMSIZ] = {0};
   pid_t effective_pid = container_pid > 0 ? container_pid : cfg->container_pid;
   if (effective_pid <= 0) {
-    ds_warn("[NET] cleanup: cannot derive veth name — no valid PID");
+    ds_warn("[NET] cleanup: cannot derive veth name - no valid PID");
     /* still proceed with iptables cleanup */
   } else {
     veth_host_name(effective_pid, veth_host, sizeof(veth_host));
@@ -1324,7 +1324,7 @@ void ds_net_cleanup(struct ds_config *cfg, pid_t container_pid) {
    * Stopping them while others are running kills their networking. */
   int surviving = ds_nl_count_ifaces_with_prefix(ctx, "ds-v");
   if (surviving > 0) {
-    ds_log("[NET] cleanup: %d other container(s) still running — "
+    ds_log("[NET] cleanup: %d other container(s) still running - "
            "keeping shared iptables and routing rules",
            surviving);
     ds_ipt_remove_portforwards(cfg);
@@ -1334,11 +1334,11 @@ void ds_net_cleanup(struct ds_config *cfg, pid_t container_pid) {
     return;
   }
 
-  /* Last container — safe to stop shared services and remove shared rules */
+  /* Last container - safe to stop shared services and remove shared rules */
   ds_dhcp_server_stop();
   ds_dns_proxy_stop();
 
-  /* 2. Remove Android policy rules (last container — safe to clean up) */
+  /* 2. Remove Android policy rules (last container - safe to clean up) */
   if (is_android()) {
     uint32_t subnet, mask;
     parse_cidr(DS_DEFAULT_SUBNET, &subnet, &mask);

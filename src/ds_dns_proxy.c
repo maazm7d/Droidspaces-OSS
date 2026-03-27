@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * ds_dns_proxy.c - Transparent DNS proxy for NAT containers.
  *

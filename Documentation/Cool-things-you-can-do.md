@@ -154,7 +154,7 @@ Fail2Ban monitors your system logs and automatically blocks IP addresses that sh
 
    # Use UFW as the banning action
    banaction = ufw
-   
+
    # Whitelist to prevent accidental lockouts:
    # 1. YOUR_TAILSCALE_IP: Your private tunnel address (e.g. 100.74.132.81)
    # 2. 172.28.0.0/16: The internal Droidspaces NAT bridge (covers all containers)

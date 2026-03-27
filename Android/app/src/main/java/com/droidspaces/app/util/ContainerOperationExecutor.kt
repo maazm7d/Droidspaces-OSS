@@ -14,7 +14,7 @@ import kotlin.coroutines.resume
  * Executes container operations (start/stop/restart) with TRUE real-time output streaming.
  *
  * Uses libsu's CallbackList API to receive each line of output as the binary produces it.
- * Each line is immediately dispatched to the logger via logImmediate() — no coroutines,
+ * Each line is immediately dispatched to the logger via logImmediate() - no coroutines,
  * no fire-and-forget detached scopes, no race conditions.
  *
  * Flow: Binary stdout → CallbackList.onAddElement() [main thread] → logImmediate() → TerminalConsole
@@ -31,14 +31,14 @@ object ContainerOperationExecutor {
      *
      * Each line from the binary appears in the terminal immediately as it's printed.
      * The coroutine blocks on exec() until the process exits, but output streams in real-time
-     * via CallbackList's onAddElement() callback — which libsu calls on the main thread.
+     * via CallbackList's onAddElement() callback - which libsu calls on the main thread.
      *
      * We call logger.logImmediate() synchronously inside onAddElement instead of spinning up
      * MainScope().launch coroutines, which were detached, untracked, and caused the terminal
      * to cut off before all lines were flushed to the UI.
      *
      * Final log lines ("Command executed", operationCompletedMessage) are posted via
-     * Handler.post() — which enqueues them AFTER any already-pending onAddElement callbacks
+     * Handler.post() - which enqueues them AFTER any already-pending onAddElement callbacks
      * in the main thread's message queue. This guarantees they always appear at the bottom,
      * even if libsu's reader thread posted some onAddElement calls just before exec() returned.
      *
@@ -63,7 +63,7 @@ object ContainerOperationExecutor {
             val lastLineWasEmpty = java.util.concurrent.atomic.AtomicBoolean(false)
 
             // onAddElement is called by libsu on the main thread as each line arrives.
-            // We call logImmediate() directly — synchronous, no coroutines, no races.
+            // We call logImmediate() directly - synchronous, no coroutines, no races.
             val callbackList = object : CallbackList<String>() {
                 override fun onAddElement(s: String?) {
                     s ?: return
@@ -91,7 +91,7 @@ object ContainerOperationExecutor {
             // race with those pending callbacks.
             //
             // Instead, we post via Handler.post() which enqueues our block AFTER everything
-            // already in the main thread's message queue — including any pending onAddElement
+            // already in the main thread's message queue - including any pending onAddElement
             // callbacks. This guarantees our final lines always appear at the very bottom.
             suspendCancellableCoroutine<Unit> { continuation ->
                 mainHandler.post {

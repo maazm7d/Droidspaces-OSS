@@ -1,7 +1,7 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
- * ds_dhcp.c — Embedded single-lease DHCP server for NAT containers.
+ * ds_dhcp.c - Embedded single-lease DHCP server for NAT containers.
  *
  * Runs as a joinable thread inside the monitor process. Bound exclusively to
  * the container's veth_host interface via SO_BINDTODEVICE so it never
@@ -94,7 +94,7 @@ struct dhcp_pkt {
 } __attribute__((packed));
 
 /* ---------------------------------------------------------------------------
- * Module-level state — one context per monitor process
+ * Module-level state - one context per monitor process
  *
  * Droidspaces runs a separate monitor process per container, so a single
  * global context is sufficient and avoids any cross-container state sharing.
@@ -250,7 +250,7 @@ static int build_reply(struct dhcp_pkt *reply, const struct dhcp_pkt *req,
  * Reply transmitter
  *
  * Always broadcasts to 255.255.255.255:68.  The veth pair is a private
- * point-to-point link so broadcast reaches only the container — no ARP
+ * point-to-point link so broadcast reaches only the container - no ARP
  * dependency during initial address acquisition.
  * ---------------------------------------------------------------------------*/
 
@@ -612,8 +612,8 @@ void ds_dhcp_server_start(struct ds_config *cfg, const char *veth_host,
 
   /* Block until the thread has bound its socket and emitted the
    * "DHCP Server started" log line (or failed).  This guarantees that
-   * all subsequent caller logs — port forwards, boot message, foreground
-   * prompt — are always sequenced strictly after the DHCP line.
+   * all subsequent caller logs - port forwards, boot message, foreground
+   * prompt - are always sequenced strictly after the DHCP line.
    *
    * pthread_cond_wait atomically releases g_dhcp_lock while sleeping,
    * so the DHCP thread can acquire it to set ready=1 and signal us. */

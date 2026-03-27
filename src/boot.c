@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Copyright (C) 2026 ravindu644 <droidcasts@protonmail.com>
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -99,7 +99,7 @@ int internal_boot(struct ds_config *cfg) {
    * handshake) so loopback is still configured.  No veth is created.
    * ─────────────────────────────────────────────────────────────────────── */
   if (cfg->net_mode != DS_NET_HOST) {
-    ds_log("[NET] Child: net_mode=%d — starting handshake with monitor",
+    ds_log("[NET] Child: net_mode=%d - starting handshake with monitor",
            cfg->net_mode);
 
     /* We write to net_ready, read from net_done */
@@ -180,7 +180,7 @@ int internal_boot(struct ds_config *cfg) {
     return -1;
   }
 
-  /* Detect init system once — used for seccomp and cgroup setup */
+  /* Detect init system once - used for seccomp and cgroup setup */
   int is_systemd = is_systemd_rootfs(cfg->rootfs_path);
 
   /* Apply Seccomp filters early for host protection.
@@ -247,7 +247,7 @@ int internal_boot(struct ds_config *cfg) {
     return -1;
   }
 
-  /* 9. Scan host GPU device GIDs (BEFORE pivot_root — need host /dev) */
+  /* 9. Scan host GPU device GIDs (BEFORE pivot_root - need host /dev) */
   gid_t gpu_gids[DS_MAX_GPU_GROUPS];
   int gpu_gid_count = 0;
   if (!cfg->reboot_cycle) {
@@ -394,7 +394,7 @@ int internal_boot(struct ds_config *cfg) {
 
   write_file("run/droidspaces/name", cfg->container_name);
 
-  /* Save mount path for recovery — survives host-side .mount sidecar deletion
+  /* Save mount path for recovery - survives host-side .mount sidecar deletion
    */
   if (cfg->img_mount_point[0])
     write_file("run/droidspaces/mount", cfg->img_mount_point);
@@ -466,7 +466,7 @@ int internal_boot(struct ds_config *cfg) {
   /* 23b. Integration with /etc/profile.d for universal sourcing */
   if (access("/etc/profile.d", F_OK) == 0) {
     const char *profile_link = "/etc/profile.d/droidspaces_env.sh";
-    /* Always recreate — avoids TOCTOU and fixes stale symlinks after rootfs
+    /* Always recreate - avoids TOCTOU and fixes stale symlinks after rootfs
      * swap */
     unlink(profile_link);
     if (symlink("/run/droidspaces.env", profile_link) < 0 && errno != EEXIST) {
@@ -521,7 +521,7 @@ int internal_boot(struct ds_config *cfg) {
   /* Tell systemd which cgroup hierarchy the container was actually set up
    * with.  We use statfs() on /sys/fs/cgroup (now the container root after
    * pivot_root) rather than guessing from kernel version.  setup_cgroups()
-   * already decided the layout — we just reflect what it mounted:
+   * already decided the layout - we just reflect what it mounted:
    *   cgroup2fs  → unified (v2 only)  → unified_cgroup_hierarchy=1
    *   tmpfs      → legacy / hybrid    → unified_cgroup_hierarchy=0
    * This is exactly what LXC does via lxc.init.cmd. */

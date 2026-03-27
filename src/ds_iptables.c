@@ -1,5 +1,5 @@
 /*
- * Droidspaces v5 — High-performance Container Runtime
+ * Droidspaces v5 - High-performance Container Runtime
  *
  * Surgical iptables rule management via raw IP_TABLES socket API.
  * Replaces all `iptables` shell invocations.
@@ -29,7 +29,7 @@
 #include <linux/netfilter_ipv4/ip_tables.h>
 
 /* ---------------------------------------------------------------------------
- * CIDR helper — shared with network.c via the public header
+ * CIDR helper - shared with network.c via the public header
  * ---------------------------------------------------------------------------*/
 
 void parse_cidr(const char *cidr, uint32_t *ip_out, uint32_t *mask_out) {
@@ -52,7 +52,7 @@ void parse_cidr(const char *cidr, uint32_t *ip_out, uint32_t *mask_out) {
 }
 
 /* ---------------------------------------------------------------------------
- * Module loader — best-effort, harmless on built-in or absent modprobe
+ * Module loader - best-effort, harmless on built-in or absent modprobe
  * ---------------------------------------------------------------------------*/
 
 static int modules_probed = 0;
@@ -217,7 +217,7 @@ static void fixup_jump_targets(unsigned char *blob, unsigned int blob_sz,
  *         repl->hook_entry[h] += new_rule_size;
  *
  * Because insert_off == info->hook_entry[hook_id], the hook we are inserting
- * INTO was always bumped past the newly inserted rule — making it unreachable
+ * INTO was always bumped past the newly inserted rule - making it unreachable
  * to the kernel's packet-processing path.  This caused ZERO packet matches
  * on every FORWARD/POSTROUTING rule we ever inserted.
  *
@@ -259,12 +259,12 @@ static int insert_rule_at_hook(int fd, const char *table_name,
     repl->hook_entry[h] = info->hook_entry[h];
     repl->underflow[h] = info->underflow[h];
 
-    /* hook_entry: strictly greater — the chain we insert INTO keeps its start
+    /* hook_entry: strictly greater - the chain we insert INTO keeps its start
      */
     if (info->hook_entry[h] > insert_off)
       repl->hook_entry[h] += new_rule_sz;
 
-    /* underflow: at-or-after — terminal entries always shift */
+    /* underflow: at-or-after - terminal entries always shift */
     if (info->underflow[h] >= insert_off)
       repl->underflow[h] += new_rule_sz;
 
@@ -389,7 +389,7 @@ static int remove_matching_rules(int fd, const char *table_name,
           strncmp(e->ip.outiface, match_iface, IFNAMSIZ) == 0)
         is_ours = 1;
     }
-    /* ACCEPT on our bridge interface — raw-path variant (empty name, standard
+    /* ACCEPT on our bridge interface - raw-path variant (empty name, standard
      * target) */
     if (!is_ours && match_iface && match_iface[0] && tname[0] == '\0') {
       if (strncmp(e->ip.iniface, match_iface, IFNAMSIZ) == 0 ||
@@ -399,7 +399,7 @@ static int remove_matching_rules(int fd, const char *table_name,
 
     if (is_ours) {
       /* Safety: never remove an underflow (chain policy) entry.
-       * This check belongs here in Pass 1, not Pass 2 — we only care
+       * This check belongs here in Pass 1, not Pass 2 - we only care
        * whether the entry we are ABOUT TO REMOVE happens to be an underflow.
        * Checking old_offsets[] in Pass 2 matches every entry unconditionally
        * and always fires, which was the false-positive bug.               */
@@ -411,10 +411,10 @@ static int remove_matching_rules(int fd, const char *table_name,
         }
       }
       if (is_underflow) {
-        ds_warn("[IPT] remove: would remove underflow entry at offset %u — "
+        ds_warn("[IPT] remove: would remove underflow entry at offset %u - "
                 "skipping",
                 offset);
-        /* Treat as non-matching — copy it through instead of removing */
+        /* Treat as non-matching - copy it through instead of removing */
         memcpy(new_blob + new_sz, e, e->next_offset);
         new_sz += e->next_offset;
         offset += e->next_offset;
@@ -572,7 +572,7 @@ int ds_ipt_ensure_masquerade(const char *src_cidr) {
 
   int fd = open_raw_socket();
   if (fd < 0) {
-    /* No socket at all — binary only */
+    /* No socket at all - binary only */
     goto binary_fallback_masq;
   }
 
@@ -590,7 +590,7 @@ int ds_ipt_ensure_masquerade(const char *src_cidr) {
     /* Idempotency check */
     if (rule_exists_in_hook(&info, ENTRIES_BLOB(base), NF_INET_POST_ROUTING,
                             NULL, NULL, src_ip, src_mask, "MASQUERADE")) {
-      ds_log("[IPT] MASQUERADE already present — skipping");
+      ds_log("[IPT] MASQUERADE already present - skipping");
       free(base);
       close(fd);
       return 0;
@@ -598,7 +598,7 @@ int ds_ipt_ensure_masquerade(const char *src_cidr) {
 
     /* Build MASQUERADE rule.
      * MASQUERADE target requires the nf_nat_ipv4_multi_range_compat payload
-     * with rangesize=1 — the kernel validates this. */
+     * with rangesize=1 - the kernel validates this. */
     unsigned char
         rule_buf[XT_ALIGN(sizeof(struct ipt_entry)) +
                  XT_ALIGN(sizeof(struct xt_entry_target) +
@@ -882,7 +882,7 @@ binary_fallback_inp: {
 /* ---------------------------------------------------------------------------
  * Public API: ds_ipt_ensure_mss_clamp
  *
- * MSS clamping rule for TCP SYN packets — prevents MTU blackhole through
+ * MSS clamping rule for TCP SYN packets - prevents MTU blackhole through
  * bridge + veth path.
  *
  * The raw socket API for this rule is disproportionately complex because it
@@ -1172,7 +1172,7 @@ static int pf_state_remove(const char *container_ip) {
  *   -t filter -I FORWARD     -p <proto> -d <container_ip>
  *             --dport <container_port> -j ACCEPT
  *
- * Binary fallback only — DNAT raw socket construction is disproportionately
+ * Binary fallback only - DNAT raw socket construction is disproportionately
  * complex for a feature that only fires at container start.
  * ---------------------------------------------------------------------------*/
 
@@ -1193,7 +1193,7 @@ int ds_ipt_add_portforwards(struct ds_config *cfg, const char *container_ip) {
             "cleanup on stop may be incomplete",
             state_path, strerror(errno));
 
-  /* Probe once before the loop — avoids reopening /proc/net/ip_tables_matches
+  /* Probe once before the loop - avoids reopening /proc/net/ip_tables_matches
    * for every port forward entry. */
   int use_addrtype = addrtype_available();
 
@@ -1220,7 +1220,7 @@ int ds_ipt_add_portforwards(struct ds_config *cfg, const char *container_ip) {
 
     /* PREROUTING DNAT.
      * Preferred: -m addrtype --dst-type LOCAL restricts the rule to traffic
-     * destined for the phone itself — prevents hijacking hotspot client flows.
+     * destined for the phone itself - prevents hijacking hotspot client flows.
      * Fallback: omit addrtype on kernels where xt_addrtype is absent (common
      * on Kernel 4.14 and below). The rule is broader but still functional.
      *
@@ -1259,10 +1259,10 @@ int ds_ipt_add_portforwards(struct ds_config *cfg, const char *container_ip) {
     }
 
     if (!dnat_ok) {
-      /* Fallback: no addrtype match — broader rule, still correct for
+      /* Fallback: no addrtype match - broader rule, still correct for
        * single-interface phones. Log a notice so the user is aware. */
       if (!use_addrtype)
-        ds_log("[IPT] xt_addrtype unavailable — using basic DNAT for port %s",
+        ds_log("[IPT] xt_addrtype unavailable - using basic DNAT for port %s",
                host_port_str);
       char *dnat_fb[] = {"iptables",         "-t",          "nat", "-I",
                          "PREROUTING",       "1",           "-p",  pf->proto,

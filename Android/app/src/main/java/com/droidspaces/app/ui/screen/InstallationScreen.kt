@@ -55,7 +55,7 @@ fun InstallationScreen(
             val wasDaemon = whichBackendMode == "DAEMON"
 
             val isAtomicUpdate = backendStatus is DroidspacesBackendStatus.UpdateAvailable
-            
+
             isInstallingModule = false
 
             if (!isAtomicUpdate) {
