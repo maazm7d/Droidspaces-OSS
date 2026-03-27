@@ -249,7 +249,9 @@ Your device must be rooted. The following rooting methods have been tested:
 
 > [!CAUTION]
 >
-> **GrapheneOS is not supported** because it blocks critical syscalls used for namespace isolation and containerization, making it impossible to run a userspace runtime like Droidspaces even with root access.
+> **GrapheneOS is not supported** - because it blocks critical syscalls used for namespace isolation and containerization, making it impossible to run a userspace runtime like Droidspaces even with root access.
+>
+> **SuSFS is not supported** - DO NOT REPORT ANY BUGS WHEN USING SUSFS. If you must use SuSFS with Droidspaces, ensure that "HIDE SUS MOUNTS FOR ALL PROCESSES" is disabled in your SuSFS4KSU settings to avoid container boot failures.
 
 <a id="android-kernel-requirements"></a>
 
