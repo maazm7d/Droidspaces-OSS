@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import com.droidspaces.app.ui.util.LoadingIndicator
 import com.droidspaces.app.ui.util.LoadingSize
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.droidspaces.app.ui.viewmodel.AppStateViewModel
 import androidx.activity.ComponentActivity
 import android.net.Uri
 import androidx.navigation.NavType
@@ -106,9 +107,15 @@ fun DroidspacesNavigation(
     val context = LocalContext.current
     val prefsManager = remember { PreferencesManager.getInstance(context) }
 
-    // Shared ViewModel scoped to Activity to ensure state consistency across screens
+    // Shared ViewModels scoped to Activity to ensure state consistency across screens
     val activity = context as? ComponentActivity
     val sharedContainerViewModel: ContainerViewModel = if (activity != null) {
+        viewModel(viewModelStoreOwner = activity)
+    } else {
+        viewModel()
+    }
+
+    val sharedAppStateViewModel: AppStateViewModel = if (activity != null) {
         viewModel(viewModelStoreOwner = activity)
     } else {
         viewModel()
@@ -192,6 +199,7 @@ fun DroidspacesNavigation(
             exitTransition = setupExitTransition
         ) {
             InstallationScreen(
+                appStateViewModel = sharedAppStateViewModel,
                 onInstallationComplete = {
                     prefsManager.isSetupCompleted = true
 

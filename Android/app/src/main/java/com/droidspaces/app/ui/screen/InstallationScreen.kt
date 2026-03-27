@@ -28,8 +28,11 @@ import kotlinx.coroutines.withContext
 import com.droidspaces.app.R
 import com.droidspaces.app.util.Constants
 
+import com.droidspaces.app.ui.viewmodel.AppStateViewModel
+
 @Composable
 fun InstallationScreen(
+    appStateViewModel: AppStateViewModel,
     onInstallationComplete: () -> Unit
 ) {
     val context = LocalContext.current
@@ -99,17 +102,26 @@ fun InstallationScreen(
                             isSuccess = true
                             isInstalling = false
                             isInstallingModule = false
+                            // Proactive refresh to update UI state before user navigates back
+                            appStateViewModel.resetForPostInstallation()
+                            appStateViewModel.forceRefresh()
                         },
                         onFailure = { error ->
                             errorMessage = error.message ?: context.getString(R.string.module_installation_failed)
                             isInstalling = false
                             isInstallingModule = false
+                            // Refresh even on failure to update error status
+                            appStateViewModel.resetForPostInstallation()
+                            appStateViewModel.forceRefresh()
                         }
                     )
                 },
                 onFailure = { error ->
                     errorMessage = error.message ?: context.getString(R.string.binary_installation_failed)
                     isInstalling = false
+                    // Refresh even on failure
+                    appStateViewModel.resetForPostInstallation()
+                    appStateViewModel.forceRefresh()
                 }
             )
 

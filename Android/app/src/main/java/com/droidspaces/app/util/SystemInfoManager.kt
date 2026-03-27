@@ -364,11 +364,11 @@ object SystemInfoManager {
     }
 
     /**
-     * Reset cache (useful for testing or if system state changes)
+     * Reset Droidspaces-specific cache.
+     * Called after installation/update to force refresh of version and mode.
+     * Preserves system-level info (SELinux, Root Provider) to prevent UI flicker.
      */
     fun resetCache() {
-        rootProviderVersionCache = null
-        selinuxStatusCache = null
         droidspacesVersionCache = null
         backendModeCache = null
         isInitialized = false
