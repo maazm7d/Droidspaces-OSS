@@ -508,17 +508,13 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
     fprintf(f_out, "hostname=%s\n", cfg->hostname);
 
   if (cfg->is_img_mount && cfg->rootfs_img_path[0]) {
-    char abs_path[PATH_MAX];
-    if (realpath(cfg->rootfs_img_path, abs_path))
-      fprintf(f_out, "rootfs_path=%s\n", abs_path);
-    else
-      fprintf(f_out, "rootfs_path=%s\n", cfg->rootfs_img_path);
+    char *abs_path = ds_resolve_path_arg(cfg->rootfs_img_path);
+    fprintf(f_out, "rootfs_path=%s\n", abs_path ? abs_path : cfg->rootfs_img_path);
+    free(abs_path);
   } else if (cfg->rootfs_path[0]) {
-    char abs_path[PATH_MAX];
-    if (realpath(cfg->rootfs_path, abs_path))
-      fprintf(f_out, "rootfs_path=%s\n", abs_path);
-    else
-      fprintf(f_out, "rootfs_path=%s\n", cfg->rootfs_path);
+    char *abs_path = ds_resolve_path_arg(cfg->rootfs_path);
+    fprintf(f_out, "rootfs_path=%s\n", abs_path ? abs_path : cfg->rootfs_path);
+    free(abs_path);
   }
 
   fprintf(f_out, "disable_ipv6=%d\n", cfg->disable_ipv6);

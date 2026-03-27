@@ -152,7 +152,7 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
 
   /* 1. Cleanup firmware path (hw_access mode only; skip on force-cleanup
    * since accessing a zombie-held rootfs can hang).
-   * Use cfg->rootfs_path directly - it is already realpath'd and valid for
+   * Use cfg->rootfs_path directly - it is already fully resolved and valid for
    * both dir-based and img-based modes at this point. */
   if (!force_cleanup && cfg->hw_access && cfg->rootfs_path[0]) {
     char fw_path[PATH_MAX + 16];
@@ -305,22 +305,26 @@ int start_rootfs(struct ds_config *cfg) {
    *     This prevents symlink-based attacks and ensures that all subsequent
    *     operations use the intended location. */
   if (cfg->rootfs_path[0]) {
-    char resolved[PATH_MAX];
-    if (realpath(cfg->rootfs_path, resolved) == NULL) {
-      ds_error("Failed to resolve rootfs path '%s': %s", cfg->rootfs_path,
-               strerror(errno));
+    char *abs_path = ds_resolve_path_arg(cfg->rootfs_path);
+    if (!abs_path || access(abs_path, F_OK) != 0) {
+      ds_error("Failed to resolve rootfs path '%s': %s",
+               abs_path ? abs_path : cfg->rootfs_path, strerror(errno));
+      free(abs_path);
       goto cleanup;
     }
-    safe_strncpy(cfg->rootfs_path, resolved, sizeof(cfg->rootfs_path));
+    safe_strncpy(cfg->rootfs_path, abs_path, sizeof(cfg->rootfs_path));
+    free(abs_path);
   }
   if (cfg->rootfs_img_path[0]) {
-    char resolved[PATH_MAX];
-    if (realpath(cfg->rootfs_img_path, resolved) == NULL) {
+    char *abs_path = ds_resolve_path_arg(cfg->rootfs_img_path);
+    if (!abs_path || access(abs_path, F_OK) != 0) {
       ds_error("Failed to resolve rootfs image path '%s': %s",
-               cfg->rootfs_img_path, strerror(errno));
+               abs_path ? abs_path : cfg->rootfs_img_path, strerror(errno));
+      free(abs_path);
       goto cleanup;
     }
-    safe_strncpy(cfg->rootfs_img_path, resolved, sizeof(cfg->rootfs_img_path));
+    safe_strncpy(cfg->rootfs_img_path, abs_path, sizeof(cfg->rootfs_img_path));
+    free(abs_path);
   }
 
   /* 1. Preparation */
@@ -472,7 +476,7 @@ int start_rootfs(struct ds_config *cfg) {
   }
 
   /* Firmware path - hw_access mode only.
-   * By this point cfg->rootfs_path is fully resolved (realpath'd) and the
+   * By this point cfg->rootfs_path is fully resolved and the
    * image is mounted if applicable.  firmware_path_add() internally checks
    * that /lib/firmware exists in the rootfs before touching the sysfs node. */
   if (cfg->hw_access) {

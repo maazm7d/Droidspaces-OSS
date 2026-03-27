@@ -232,44 +232,33 @@ void ds_resolve_argv_paths(int argc, char **argv) {
 }
 
 int is_subpath(const char *parent, const char *child) {
-  char real_parent[PATH_MAX], real_child[PATH_MAX];
+  char *real_parent = ds_resolve_path_arg(parent);
+  char *real_child = ds_resolve_path_arg(child);
 
-  if (!realpath(parent, real_parent)) {
+  if (!real_parent || !real_child || !real_parent[0] || !real_child[0]) {
+    free(real_parent);
+    free(real_child);
     return 0;
   }
 
-  /* We use a temporary buffer for child path manipulation */
-  char child_copy[PATH_MAX];
-  safe_strncpy(child_copy, child, sizeof(child_copy));
+  size_t len = strlen(real_parent);
 
-  if (!realpath(child_copy, real_child)) {
-    /* If child doesn't exist yet, we can't realpath it.
-     * But for bind mounts, tgt usually exists or is about to be created.
-     * We'll check the parent of the child instead. */
-    char *slash = strrchr(child_copy, '/');
-    if (slash) {
-      if (slash == child_copy) {
-        /* Child is in the root directory */
-        safe_strncpy(child_copy, "/", sizeof(child_copy));
-      } else {
-        *slash = '\0';
-      }
-
-      if (!realpath(child_copy, real_child))
-        return 0;
-    } else {
-      /* Relative path with no slashes, check current directory */
-      if (!realpath(".", real_child))
-        return 0;
-    }
+  /* Special case for the root directory */
+  if (len == 1 && real_parent[0] == '/') {
+    free(real_parent);
+    free(real_child);
+    return 1;
   }
 
-  size_t len = strlen(real_parent);
+  int result = 0;
   if (strncmp(real_parent, real_child, len) == 0) {
     if (real_child[len] == '\0' || real_child[len] == '/')
-      return 1;
+      result = 1;
   }
-  return 0;
+
+  free(real_parent);
+  free(real_child);
+  return result;
 }
 
 int is_running_in_termux(void) {
