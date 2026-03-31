@@ -62,14 +62,6 @@ if [ -f "${MAGISKPOLICY_BINARY}" ] && [ -f "${DROIDSPACES_TE_FILE}" ]; then
     if [ $RET -eq 0 ]; then
         log "SELinux policy patched successfully"
 
-    # Relabel the binary to droidspacesd_exec so the kernel's SELinux entrypoint
-    # check passes when droidspaces re-execs itself into u:r:droidspacesd:s0.
-    # Without this, the exec transition gets denied because system_data_file is
-    # not a valid entrypoint for the droidspacesd domain.
-    # This is a no-op if SELinux is disabled or the label is already correct.
-    chcon u:object_r:droidspacesd_exec:s0 "${DROIDSPACE_BINARY}" 2>/dev/null || \
-        log "WARNING: chcon failed - SELinux transition may fall back to setcon path"
-
     else
         log "WARNING: magiskpolicy failed (exit $RET)"
         log "Output: ${OUTPUT}"
@@ -81,6 +73,14 @@ fi
 # Start the Droidspaces daemon if enabled (value 1)
 if [ -f "${DAEMON_MODE_FILE}" ] && [ "$(${BUSYBOX_BINARY} cat "${DAEMON_MODE_FILE}" 2>/dev/null)" = "1" ]; then
     log "Daemon mode enabled, starting Droidspaces daemon..."
+
+    # Relabel the binary to droidspacesd_exec so the kernel's SELinux entrypoint
+    # check passes when droidspaces re-execs itself into u:r:droidspacesd:s0.
+    # Without this, the exec transition gets denied because system_data_file is
+    # not a valid entrypoint for the droidspacesd domain.
+    # This is a no-op if SELinux is disabled or the label is already correct.
+    chcon u:object_r:droidspacesd_exec:s0 "${DROIDSPACE_BINARY}" 2>/dev/null || \
+        log "WARNING: chcon failed - SELinux transition may fall back to setcon path"
 
     if "${DROIDSPACE_BINARY}" daemon 2>&1; then
         log "Daemon process launched successfully"
