@@ -977,17 +977,16 @@ int start_rootfs(struct ds_config *cfg) {
         write_file(uuid_sync, cfg->uuid);
       }
 
-      /* Reload configuration from disk if available (merge strategy) */
-      if (cfg->config_file[0]) {
+      /* Reload from workspace (canonical path the user edits) */
+      {
         free_config_binds(cfg);
-        /* Do NOT free env_vars here; preserve them across the internal reboot
-         */
+        /* Preserve env_vars across the reboot */
         struct ds_env_var *saved_vars = cfg->env_vars;
         int saved_count = cfg->env_var_count;
         int saved_cap = cfg->env_var_capacity;
 
         struct ds_config reboot_cfg = *cfg;
-        if (ds_config_load(cfg->config_file, &reboot_cfg) == 0) {
+        if (ds_config_load_by_name(cfg->container_name, &reboot_cfg) == 0) {
           reboot_cfg.env_vars = saved_vars;
           reboot_cfg.env_var_count = saved_count;
           reboot_cfg.env_var_capacity = saved_cap;
@@ -998,7 +997,7 @@ int start_rootfs(struct ds_config *cfg) {
                                sizeof(reboot_cfg.dns_server_content));
           }
           *cfg = reboot_cfg;
-          /* Restore mount point to rootfs_path for the next boot cycle */
+          /* Restore mount point for img-based containers */
           if (cfg->is_img_mount && cfg->img_mount_point[0]) {
             safe_strncpy(cfg->rootfs_path, cfg->img_mount_point,
                          sizeof(cfg->rootfs_path));

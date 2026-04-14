@@ -51,6 +51,9 @@ void parse_privileged(const char *value, struct ds_config *cfg) {
   if (!value)
     return;
 
+  /* Reset first so removing flags from config takes effect on reload */
+  cfg->privileged_mask = 0;
+
   char copy[1024];
   safe_strncpy(copy, value, sizeof(copy));
 
