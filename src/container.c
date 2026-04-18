@@ -587,10 +587,18 @@ int start_rootfs(struct ds_config *cfg) {
     int ns_flags = CLONE_NEWUTS | CLONE_NEWIPC;
 
     /* Create host-side cgroup directory and move self into it */
-    ds_cgroup_host_create(cfg);
+    if (ds_cgroup_host_create(cfg) < 0) {
+      ds_error("Failed to initialize cgroup hierarchy.");
+      _exit(EXIT_FAILURE);
+    }
 
     /* Apply resource limits if defined */
-    ds_cgroup_apply_limits(cfg);
+    if (ds_cgroup_apply_limits(cfg) < 0) {
+      if (cfg->memory_limit > 0 || cfg->cpu_quota > 0 || cfg->pids_limit > 0) {
+        ds_error("Failed to enforce resource limits.");
+        _exit(EXIT_FAILURE);
+      }
+    }
 
     /* Adaptive Cgroup Namespace (introduced in Linux 4.6).
      *

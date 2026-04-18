@@ -14,6 +14,22 @@ struct host_cgroup {
   int version;
 };
 
+static int ds_cgroup_match_controller(const char *controllers, const char *name) {
+  if (!controllers || !name) return 0;
+
+  char copy[256];
+  safe_strncpy(copy, controllers, sizeof(copy));
+
+  char *saveptr;
+  char *token = strtok_r(copy, ",", &saveptr);
+  while (token) {
+    if (strcmp(token, name) == 0) return 1;
+    token = strtok_r(NULL, ",", &saveptr);
+  }
+  return 0;
+}
+
+
 /* Find the container's cgroup path for a given controller by reading
  * /proc/self/cgroup. If controller is NULL, it looks for the v2 (unified)
  * hierarchy. */
@@ -810,7 +826,8 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
       }
     } else {
       /* Cgroup V1 */
-      if (cfg->memory_limit > 0 && strstr(hosts[i].controllers, "memory")) {
+      if (cfg->memory_limit > 0 &&
+          ds_cgroup_match_controller(hosts[i].controllers, "memory")) {
         snprintf(file_path, sizeof(file_path), "%s/memory.limit_in_bytes",
                  cg_path);
         snprintf(val, sizeof(val), "%lld", cfg->memory_limit);
@@ -820,8 +837,9 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
           errors++;
         }
       }
-      if (cfg->cpu_quota > 0 && (strstr(hosts[i].controllers, "cpu") ||
-                                strstr(hosts[i].controllers, "cpuacct"))) {
+      if (cfg->cpu_quota > 0 &&
+          (ds_cgroup_match_controller(hosts[i].controllers, "cpu") ||
+           ds_cgroup_match_controller(hosts[i].controllers, "cpuacct"))) {
         long long period = (cfg->cpu_period > 0) ? cfg->cpu_period : 100000;
         snprintf(file_path, sizeof(file_path), "%s/cpu.cfs_period_us", cg_path);
         snprintf(val, sizeof(val), "%lld", period);
@@ -835,7 +853,8 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
           errors++;
         }
       }
-      if (cfg->pids_limit > 0 && strstr(hosts[i].controllers, "pids")) {
+      if (cfg->pids_limit > 0 &&
+          ds_cgroup_match_controller(hosts[i].controllers, "pids")) {
         snprintf(file_path, sizeof(file_path), "%s/pids.max", cg_path);
         snprintf(val, sizeof(val), "%lld", cfg->pids_limit);
         if (write_file(file_path, val) < 0) {
@@ -886,17 +905,24 @@ int ds_cgroup_get_usage(struct ds_config *cfg, long long *mem_usage, long long *
         if (read_file(file_path, buf, sizeof(buf)) > 0) *pids_usage = atoll(buf);
       }
     } else {
-      if (mem_usage && *mem_usage == -1 && strstr(hosts[i].controllers, "memory")) {
-        snprintf(file_path, sizeof(file_path), "%s/memory.usage_in_bytes", cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0) *mem_usage = atoll(buf);
+      if (mem_usage && *mem_usage == -1 &&
+          ds_cgroup_match_controller(hosts[i].controllers, "memory")) {
+        snprintf(file_path, sizeof(file_path), "%s/memory.usage_in_bytes",
+                 cg_path);
+        if (read_file(file_path, buf, sizeof(buf)) > 0)
+          *mem_usage = atoll(buf);
       }
-      if (cpu_usage && *cpu_usage == -1 && (strstr(hosts[i].controllers, "cpuacct"))) {
+      if (cpu_usage && *cpu_usage == -1 &&
+          (ds_cgroup_match_controller(hosts[i].controllers, "cpuacct"))) {
         snprintf(file_path, sizeof(file_path), "%s/cpuacct.usage", cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0) *cpu_usage = atoll(buf) / 1000; // ns to us
+        if (read_file(file_path, buf, sizeof(buf)) > 0)
+          *cpu_usage = atoll(buf) / 1000; // ns to us
       }
-      if (pids_usage && *pids_usage == -1 && strstr(hosts[i].controllers, "pids")) {
+      if (pids_usage && *pids_usage == -1 &&
+          ds_cgroup_match_controller(hosts[i].controllers, "pids")) {
         snprintf(file_path, sizeof(file_path), "%s/pids.current", cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0) *pids_usage = atoll(buf);
+        if (read_file(file_path, buf, sizeof(buf)) > 0)
+          *pids_usage = atoll(buf);
       }
     }
   }

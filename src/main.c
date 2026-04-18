@@ -870,9 +870,11 @@ int main(int argc, char **argv) {
     }
 
     case 266: {
-      double cpus = atof(optarg);
-      if (cpus < 0.01) {
-        ds_error("CPU limit too low: %s (minimum 0.01)", optarg);
+      char *endptr;
+      errno = 0;
+      double cpus = strtod(optarg, &endptr);
+      if (errno != 0 || endptr == optarg || *endptr != '\0' || cpus < 0.01) {
+        ds_error("Invalid or too low CPU limit: %s (minimum 0.01)", optarg);
         ret = 1;
         goto cleanup;
       }
@@ -882,12 +884,15 @@ int main(int argc, char **argv) {
     }
 
     case 267: {
-      cfg.pids_limit = atoll(optarg);
-      if (cfg.pids_limit <= 0) {
+      char *endptr;
+      errno = 0;
+      long long pids = strtoll(optarg, &endptr, 10);
+      if (errno != 0 || endptr == optarg || *endptr != '\0' || pids <= 0) {
         ds_error("Invalid PIDs limit: %s", optarg);
         ret = 1;
         goto cleanup;
       }
+      cfg.pids_limit = pids;
       break;
     }
 
