@@ -14,21 +14,33 @@ struct host_cgroup {
   int version;
 };
 
-static int ds_cgroup_match_controller(const char *controllers, const char *name) {
-  if (!controllers || !name) return 0;
+/**
+ * Strict token matching in a delimited string.
+ * Matches exact name in list (e.g. "cpu" in "cpuset cpu memory").
+ */
+static int ds_cgroup_match_token(const char *list, const char *delims,
+                                 const char *name) {
+  if (!list || !name || !delims)
+    return 0;
 
-  char copy[256];
-  safe_strncpy(copy, controllers, sizeof(copy));
+  char copy[1024];
+  safe_strncpy(copy, list, sizeof(copy));
 
   char *saveptr;
-  char *token = strtok_r(copy, ",", &saveptr);
+  char *token = strtok_r(copy, delims, &saveptr);
   while (token) {
-    if (strcmp(token, name) == 0) return 1;
-    token = strtok_r(NULL, ",", &saveptr);
+    if (strcmp(token, name) == 0)
+      return 1;
+    token = strtok_r(NULL, delims, &saveptr);
   }
   return 0;
 }
 
+/* Compatibility wrapper for V1 comma-separated lists */
+static int ds_cgroup_match_controller_v1(const char *controllers,
+                                         const char *name) {
+  return ds_cgroup_match_token(controllers, ",", name);
+}
 
 /* Find the container's cgroup path for a given controller by reading
  * /proc/self/cgroup. If controller is NULL, it looks for the v2 (unified)
@@ -68,7 +80,7 @@ static int find_self_cgroup_path(const char *controller, char *buf,
     } else {
       /* For v1, check if controller is present in the hierarchy's subsystem
        * list. (e.g. "cpu,cpuacct") */
-      if (strstr(subsys, controller)) {
+      if (ds_cgroup_match_controller_v1(subsys, controller)) {
         safe_strncpy(buf, path, size);
         found = 1;
         break;
@@ -477,7 +489,7 @@ int ds_cgroup_attach(pid_t target_pid) {
       int match = 0;
       if (hosts[i].version == 2 && subsys[0] == '\0') {
         match = 1;
-      } else if (hosts[i].version == 1 && ctrl && strstr(subsys, ctrl)) {
+      } else if (hosts[i].version == 1 && ctrl && ds_cgroup_match_controller_v1(subsys, ctrl)) {
         match = 1;
       }
 
@@ -828,7 +840,7 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
       (void)read_file(controllers_path, available, sizeof(available));
 
       if (cfg->memory_limit > 0) {
-        if (strstr(available, "memory")) {
+        if (ds_cgroup_match_token(available, " \n\t", "memory")) {
           snprintf(file_path, sizeof(file_path), "%s/memory.max", cg_path);
           snprintf(val, sizeof(val), "%lld", cfg->memory_limit);
           if (write_file(file_path, val) < 0) {
@@ -840,7 +852,7 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
         }
       }
       if (cfg->cpu_quota > 0) {
-        if (strstr(available, "cpu")) {
+        if (ds_cgroup_match_token(available, " \n\t", "cpu")) {
           long long period = (cfg->cpu_period > 0) ? cfg->cpu_period : 100000;
           snprintf(file_path, sizeof(file_path), "%s/cpu.max", cg_path);
           snprintf(val, sizeof(val), "%lld %lld", cfg->cpu_quota, period);
@@ -853,7 +865,7 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
         }
       }
       if (cfg->pids_limit > 0) {
-        if (strstr(available, "pids")) {
+        if (ds_cgroup_match_token(available, " \n\t", "pids")) {
           snprintf(file_path, sizeof(file_path), "%s/pids.max", cg_path);
           snprintf(val, sizeof(val), "%lld", cfg->pids_limit);
           if (write_file(file_path, val) < 0) {
@@ -867,7 +879,7 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
     } else {
       /* Cgroup V1 */
       if (cfg->memory_limit > 0) {
-        if (ds_cgroup_match_controller(hosts[i].controllers, "memory")) {
+        if (ds_cgroup_match_controller_v1(hosts[i].controllers, "memory")) {
           snprintf(file_path, sizeof(file_path), "%s/memory.limit_in_bytes",
                    cg_path);
           snprintf(val, sizeof(val), "%lld", cfg->memory_limit);
@@ -881,8 +893,8 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
         }
       }
       if (cfg->cpu_quota > 0) {
-        if (ds_cgroup_match_controller(hosts[i].controllers, "cpu") ||
-            ds_cgroup_match_controller(hosts[i].controllers, "cpuacct")) {
+        if (ds_cgroup_match_controller_v1(hosts[i].controllers, "cpu") ||
+            ds_cgroup_match_controller_v1(hosts[i].controllers, "cpuacct")) {
           long long period = (cfg->cpu_period > 0) ? cfg->cpu_period : 100000;
           snprintf(file_path, sizeof(file_path), "%s/cpu.cfs_period_us",
                    cg_path);
@@ -902,7 +914,7 @@ int ds_cgroup_apply_limits(struct ds_config *cfg) {
         }
       }
       if (cfg->pids_limit > 0) {
-        if (ds_cgroup_match_controller(hosts[i].controllers, "pids")) {
+        if (ds_cgroup_match_controller_v1(hosts[i].controllers, "pids")) {
           snprintf(file_path, sizeof(file_path), "%s/pids.max", cg_path);
           snprintf(val, sizeof(val), "%lld", cfg->pids_limit);
           if (write_file(file_path, val) < 0) {
@@ -941,40 +953,40 @@ int ds_cgroup_get_usage(struct ds_config *cfg, long long *mem_usage, long long *
     char buf[256];
 
     if (hosts[i].version == 2) {
-      if (mem_usage && *mem_usage == -1) {
+      char controllers_path[PATH_MAX];
+      char available[1024] = {0};
+      safe_strncpy(controllers_path, cg_path, sizeof(controllers_path));
+      strncat(controllers_path, "/cgroup.controllers",
+              sizeof(controllers_path) - strlen(controllers_path) - 1);
+      (void)read_file(controllers_path, available, sizeof(available));
+
+      if (mem_usage && *mem_usage == -1 && ds_cgroup_match_token(available, " \n\t", "memory")) {
         snprintf(file_path, sizeof(file_path), "%s/memory.current", cg_path);
         if (read_file(file_path, buf, sizeof(buf)) > 0) *mem_usage = atoll(buf);
       }
-      if (cpu_usage && *cpu_usage == -1) {
+      if (cpu_usage && *cpu_usage == -1 && ds_cgroup_match_token(available, " \n\t", "cpu")) {
         snprintf(file_path, sizeof(file_path), "%s/cpu.stat", cg_path);
         if (read_file(file_path, buf, sizeof(buf)) > 0) {
           char *usage_usec = strstr(buf, "usage_usec ");
           if (usage_usec) *cpu_usage = atoll(usage_usec + 11);
         }
       }
-      if (pids_usage && *pids_usage == -1) {
+      if (pids_usage && *pids_usage == -1 && ds_cgroup_match_token(available, " \n\t", "pids")) {
         snprintf(file_path, sizeof(file_path), "%s/pids.current", cg_path);
         if (read_file(file_path, buf, sizeof(buf)) > 0) *pids_usage = atoll(buf);
       }
     } else {
-      if (mem_usage && *mem_usage == -1 &&
-          ds_cgroup_match_controller(hosts[i].controllers, "memory")) {
-        snprintf(file_path, sizeof(file_path), "%s/memory.usage_in_bytes",
-                 cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0)
-          *mem_usage = atoll(buf);
+      if (mem_usage && *mem_usage == -1 && ds_cgroup_match_controller_v1(hosts[i].controllers, "memory")) {
+        snprintf(file_path, sizeof(file_path), "%s/memory.usage_in_bytes", cg_path);
+        if (read_file(file_path, buf, sizeof(buf)) > 0) *mem_usage = atoll(buf);
       }
-      if (cpu_usage && *cpu_usage == -1 &&
-          (ds_cgroup_match_controller(hosts[i].controllers, "cpuacct"))) {
+      if (cpu_usage && *cpu_usage == -1 && (ds_cgroup_match_controller_v1(hosts[i].controllers, "cpuacct"))) {
         snprintf(file_path, sizeof(file_path), "%s/cpuacct.usage", cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0)
-          *cpu_usage = atoll(buf) / 1000; // ns to us
+        if (read_file(file_path, buf, sizeof(buf)) > 0) *cpu_usage = atoll(buf) / 1000; // ns to us
       }
-      if (pids_usage && *pids_usage == -1 &&
-          ds_cgroup_match_controller(hosts[i].controllers, "pids")) {
+      if (pids_usage && *pids_usage == -1 && ds_cgroup_match_controller_v1(hosts[i].controllers, "pids")) {
         snprintf(file_path, sizeof(file_path), "%s/pids.current", cg_path);
-        if (read_file(file_path, buf, sizeof(buf)) > 0)
-          *pids_usage = atoll(buf);
+        if (read_file(file_path, buf, sizeof(buf)) > 0) *pids_usage = atoll(buf);
       }
     }
   }
