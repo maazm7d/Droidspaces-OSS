@@ -79,6 +79,9 @@ void print_usage(void) {
       "      --block-nested-namespaces\n"
       "                            Manual Deadlock Shield (no nested "
       "namespaces)\n"
+      "      --memory=LIMIT        Set memory limit (e.g. 512M, 1G)\n"
+      "      --cpus=COUNT          Set CPU limit (e.g. 1.5, 2)\n"
+      "      --pids-limit=LIMIT    Set max number of PIDs\n"
       "      --privileged=TAGS     Relax security: nomask, nocaps, noseccomp, "
       "shared, unfiltered-dev, full\n\n"
 
@@ -308,9 +311,7 @@ static void print_cgroup_status(struct ds_config *cfg) {
 
 int main(int argc, char **argv) {
   int ret = 0;
-  struct ds_config cfg;
-  /* CRITICAL: Zero all fields to avoid garbage pointer in dynamic arrays */
-  memset(&cfg, 0, sizeof(cfg));
+  struct ds_config cfg = {0};
 
   /* Initialise pipe fds to -1 so accidental close(-1) is harmless */
   cfg.net_ready_pipe[0] = cfg.net_ready_pipe[1] = -1;
@@ -341,6 +342,9 @@ int main(int argc, char **argv) {
       {"upstream", required_argument, 0, 259},
       {"force-cgroupv1", no_argument, 0, 260},
       {"block-nested-namespaces", no_argument, 0, 261},
+      {"memory", required_argument, 0, 265},
+      {"cpus", required_argument, 0, 266},
+      {"pids-limit", required_argument, 0, 267},
       {"privileged", required_argument, 0, 264},
       {"nat-ip", required_argument, 0, 262},
       {"gpu", no_argument, 0, 263},
@@ -853,6 +857,39 @@ int main(int argc, char **argv) {
       /* --block-nested-namespaces: fix VFS deadlock manually */
       cfg.block_nested_ns = 1;
       break;
+
+    case 265: {
+      long long bytes = ds_parse_size(optarg);
+      if (bytes < 4 * 1024 * 1024) {
+        ds_error("Memory limit too low: %s (minimum 4MB)", optarg);
+        ret = 1;
+        goto cleanup;
+      }
+      cfg.memory_limit = bytes;
+      break;
+    }
+
+    case 266: {
+      double cpus = atof(optarg);
+      if (cpus < 0.01) {
+        ds_error("CPU limit too low: %s (minimum 0.01)", optarg);
+        ret = 1;
+        goto cleanup;
+      }
+      cfg.cpu_period = 100000; /* 100ms default period */
+      cfg.cpu_quota = (long long)(cpus * cfg.cpu_period);
+      break;
+    }
+
+    case 267: {
+      cfg.pids_limit = atoll(optarg);
+      if (cfg.pids_limit <= 0) {
+        ds_error("Invalid PIDs limit: %s", optarg);
+        ret = 1;
+        goto cleanup;
+      }
+      break;
+    }
 
     case 262: {
       /* --nat-ip: static container IP inside the NAT subnet.

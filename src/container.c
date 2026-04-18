@@ -586,6 +586,12 @@ int start_rootfs(struct ds_config *cfg) {
      * PID namespace. */
     int ns_flags = CLONE_NEWUTS | CLONE_NEWIPC;
 
+    /* Create host-side cgroup directory and move self into it */
+    ds_cgroup_host_create(cfg);
+
+    /* Apply resource limits if defined */
+    ds_cgroup_apply_limits(cfg);
+
     /* Adaptive Cgroup Namespace (introduced in Linux 4.6).
      *
      * CGROUP SELECTION: Only enable cgroupns when V2 is active.
@@ -594,29 +600,6 @@ int start_rootfs(struct ds_config *cfg) {
     int cg_ns_ok = (access("/proc/self/ns/cgroup", F_OK) == 0) &&
                    (ds_cgroup_host_is_v2() && !cfg->force_cgroupv1);
     if (cg_ns_ok) {
-      /* To get isolation from a cgroup namespace, we must be in a sub-cgroup
-       * BEFORE we unshare. If we are in the root '/', the namespace root
-       * will be the host's root, providing zero isolation.
-       * We use a container-specific path to avoid conflicts. */
-      if (access("/sys/fs/cgroup/cgroup.procs", F_OK) == 0) {
-        char safe_name[256];
-        sanitize_container_name(cfg->container_name, safe_name,
-                                sizeof(safe_name));
-        char cg_path[PATH_MAX];
-        snprintf(cg_path, sizeof(cg_path), "/sys/fs/cgroup/droidspaces/%s",
-                 safe_name);
-        mkdir_p(cg_path, 0755);
-
-        char cg_procs[PATH_MAX];
-        safe_strncpy(cg_procs, cg_path, sizeof(cg_procs));
-        strncat(cg_procs, "/cgroup.procs",
-                sizeof(cg_procs) - strlen(cg_procs) - 1);
-        FILE *f = fopen(cg_procs, "we");
-        if (f) {
-          fprintf(f, "%d\n", getpid());
-          fclose(f);
-        }
-      }
       ns_flags |= CLONE_NEWCGROUP;
     } else {
       /* Legacy kernel without force flag - skip cgroupns, run in host
@@ -1828,6 +1811,32 @@ int show_info(struct ds_config *cfg, int trust_cfg_pid) {
       printf("  HW access: GPU\n");
     else
       printf("  HW access: " C_DIM "none" C_RESET "\n");
+
+    /* Resource usage */
+    long long mu, cu, pu;
+    if (ds_cgroup_get_usage(cfg, &mu, &cu, &pu) == 0) {
+      printf("\n" C_GREEN "Resource Usage:" C_RESET "\n");
+      if (mu >= 0) {
+        char mu_str[64], ml_str[64];
+        ds_format_size(mu, mu_str, sizeof(mu_str));
+        if (cfg->memory_limit > 0) {
+          ds_format_size(cfg->memory_limit, ml_str, sizeof(ml_str));
+          printf("  Memory: %s / %s\n", mu_str, ml_str);
+        } else {
+          printf("  Memory: %s\n", mu_str);
+        }
+      }
+      if (pu >= 0) {
+        if (cfg->pids_limit > 0) {
+          printf("  PIDs: %lld / %lld\n", pu, cfg->pids_limit);
+        } else {
+          printf("  PIDs: %lld\n", pu);
+        }
+      }
+      if (cu >= 0) {
+        printf("  CPU Usage: %.3f s\n", (double)cu / 1000000.0);
+      }
+    }
   } else {
     /* Best effort: read os-release from rootfs path */
     if (cfg->rootfs_path[0]) {

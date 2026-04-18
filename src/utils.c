@@ -6,6 +6,7 @@
  */
 
 #include "droidspace.h"
+#include <ctype.h>
 #include <ftw.h>
 #include <sys/xattr.h>
 #include <time.h>
@@ -1363,4 +1364,38 @@ void sort_bind_mounts(struct ds_config *cfg) {
 
   qsort(cfg->binds, cfg->bind_count, sizeof(struct ds_bind_mount),
         compare_bind_mounts);
+}
+
+long long ds_parse_size(const char *str) {
+  char *endptr;
+  double val = strtod(str, &endptr);
+  if (endptr == str) return -1;
+
+  while (*endptr == ' ') endptr++;
+
+  if (*endptr == '\0') return (long long)val;
+
+  switch (toupper((unsigned char)*endptr)) {
+    case 'K': val *= 1024; break;
+    case 'M': val *= 1024 * 1024; break;
+    case 'G': val *= 1024 * 1024 * 1024; break;
+    case 'T': val *= 1024LL * 1024 * 1024 * 1024; break;
+    default: return -1;
+  }
+  return (long long)val;
+}
+
+void ds_format_size(long long bytes, char *buf, size_t sz) {
+    if (bytes < 0) {
+        snprintf(buf, sz, "N/A");
+        return;
+    }
+    const char *units[] = {"B", "KB", "MB", "GB", "TB"};
+    int unit = 0;
+    double d_bytes = (double)bytes;
+    while (d_bytes >= 1024 && unit < 4) {
+        d_bytes /= 1024;
+        unit++;
+    }
+    snprintf(buf, sz, "%.2f %s", d_bytes, units[unit]);
 }
