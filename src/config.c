@@ -276,6 +276,14 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
       else if (val[0])
         ds_warn("config: ignoring invalid static_nat_ip '%s': %s", val,
                 _errbuf);
+    } else if (strcmp(key, "memory_limit") == 0) {
+      cfg->memory_limit = atoll(val);
+    } else if (strcmp(key, "cpu_quota") == 0) {
+      cfg->cpu_quota = atoll(val);
+    } else if (strcmp(key, "cpu_period") == 0) {
+      cfg->cpu_period = atoll(val);
+    } else if (strcmp(key, "pids_limit") == 0) {
+      cfg->pids_limit = atoll(val);
     } else if (strcmp(key, "net_mode") == 0) {
       if (strcmp(val, "nat") == 0) {
         cfg->net_mode = DS_NET_NAT;
@@ -641,6 +649,15 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
    * auto-assigned); skipped for host/none modes where it's irrelevant. */
   if (cfg->net_mode == DS_NET_NAT && cfg->static_nat_ip[0])
     fprintf(f_out, "static_nat_ip=%s\n", cfg->static_nat_ip);
+
+  if (cfg->memory_limit > 0)
+    fprintf(f_out, "memory_limit=%lld\n", cfg->memory_limit);
+  if (cfg->cpu_quota > 0)
+    fprintf(f_out, "cpu_quota=%lld\n", cfg->cpu_quota);
+  if (cfg->cpu_period > 0)
+    fprintf(f_out, "cpu_period=%lld\n", cfg->cpu_period);
+  if (cfg->pids_limit > 0)
+    fprintf(f_out, "pids_limit=%lld\n", cfg->pids_limit);
 
   if (cfg->env_file[0])
     fprintf(f_out, "env_file=%s\n", cfg->env_file);
