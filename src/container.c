@@ -191,7 +191,7 @@ static void *seccomp_bridge_listener(void *arg) {
       struct iovec local, remote;
       local.iov_base = version;
       local.iov_len = sizeof(version);
-      remote.iov_base = (void *)req.data.args[2];
+      remote.iov_base = (void *)(uintptr_t)req.data.args[2];
       remote.iov_len = sizeof(version);
 
       if (syscall(__NR_process_vm_writev, req.pid, &local, 1, &remote, 1, 0) <
