@@ -21,6 +21,15 @@
 #define SECCOMP_RET_USER_NOTIF 0x7fc00000U
 #endif
 
+#ifndef SECCOMP_GET_NOTIF_SIZES
+#define SECCOMP_GET_NOTIF_SIZES 3
+struct seccomp_notif_sizes {
+  uint16_t seccomp_notif;
+  uint16_t seccomp_notif_resp;
+  uint16_t seccomp_data;
+};
+#endif
+
 /* ---------------------------------------------------------------------------
  * Android System Call Filtering (Seccomp)
  * ---------------------------------------------------------------------------*/
@@ -254,6 +263,13 @@ int android_seccomp_setup(int is_systemd, int block_nested_ns) {
  * Returns: Listener FD on success, -1 if unsupported or failed.
  */
 int ds_seccomp_setup_bridge(void) {
+  /* Runtime check: verify SECCOMP_RET_USER_NOTIF is supported by kernel */
+  struct seccomp_notif_sizes sizes;
+  if (syscall(__NR_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes) < 0) {
+    /* Kernel doesn't support user notifications (Linux < 5.0) */
+    return -1;
+  }
+
   struct sock_filter filter[] = {
       /* 1. Validate Architecture */
       BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),

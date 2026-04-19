@@ -316,6 +316,7 @@ int main(int argc, char **argv) {
   /* Initialise pipe fds to -1 so accidental close(-1) is harmless */
   cfg.net_ready_pipe[0] = cfg.net_ready_pipe[1] = -1;
   cfg.net_done_pipe[0] = cfg.net_done_pipe[1] = -1;
+  cfg.bridge_sock[0] = cfg.bridge_sock[1] = -1;
 
   safe_strncpy(cfg.prog_name, argv[0], sizeof(cfg.prog_name));
 

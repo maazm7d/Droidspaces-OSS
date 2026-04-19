@@ -796,6 +796,7 @@ void apply_reset_config(struct ds_config *cfg, int cli_net_mode_set,
 
   cfg->net_ready_pipe[0] = cfg->net_ready_pipe[1] = -1;
   cfg->net_done_pipe[0] = cfg->net_done_pipe[1] = -1;
+  cfg->bridge_sock[0] = cfg->bridge_sock[1] = -1;
 
   safe_strncpy(cfg->container_name, save_name, sizeof(cfg->container_name));
   safe_strncpy(cfg->rootfs_path, save_rootfs, sizeof(cfg->rootfs_path));

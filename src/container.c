@@ -7,6 +7,7 @@
 
 #include "droidspace.h"
 #include <linux/seccomp.h>
+#include <poll.h>
 
 /* Compatibility for older headers (pre-5.0) */
 #ifndef SECCOMP_IOCTL_NOTIF_RECV
@@ -165,6 +166,27 @@ int is_external_lock_active(const char *name) {
  * Seccomp Bridge Listener
  * ---------------------------------------------------------------------------*/
 
+static int is_bridge_fd(pid_t pid, int fd) {
+  char path[PATH_MAX], link[PATH_MAX];
+  snprintf(path, sizeof(path), "/proc/%d/fd/%d", pid, fd);
+  ssize_t len = readlink(path, link, sizeof(link) - 1);
+  if (len < 0)
+    return 0;
+  link[len] = '\0';
+
+  /* Security: Check that the FD points to our bridge stub.
+   * Since the monitor (host namespace) and the tracee (container namespace)
+   * see different absolute paths, we verify the suffix. */
+  const char *suffix = DS_BRIDGE_STUB_PATH;
+  size_t link_len = strlen(link);
+  size_t suffix_len = strlen(suffix);
+
+  if (link_len < suffix_len)
+    return 0;
+
+  return (strcmp(link + (link_len - suffix_len), suffix) == 0);
+}
+
 static void *seccomp_bridge_listener(void *arg) {
   int fd = (int)(intptr_t)arg;
   struct seccomp_notif req;
@@ -180,12 +202,15 @@ static void *seccomp_bridge_listener(void *arg) {
 
     memset(&resp, 0, sizeof(resp));
     resp.id = req.id;
+    resp.flags = 0;
     resp.error = 0;
     resp.val = 0;
-    resp.flags = 0;
 
-    /* Handle custom ioctl bridge command */
-    if (req.data.nr == __NR_ioctl && req.data.args[1] == DS_IOC_GET_VERSION) {
+    /* Security: Ensure the ioctl is directed at our bridge stub */
+    if (!is_bridge_fd(req.pid, (int)req.data.args[0])) {
+      resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+    } else if (req.data.nr == __NR_ioctl &&
+               req.data.args[1] == DS_IOC_GET_VERSION) {
       /* Emulate success and return version string */
       char version[] = "Droidspaces-Bridge-v1";
       struct iovec local, remote;
@@ -201,17 +226,24 @@ static void *seccomp_bridge_listener(void *arg) {
         resp.val = 0;
       }
     } else {
-      /* Continue the syscall in the kernel */
+      /* Fallback for other ioctls on the bridge node if any */
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
     }
 
-    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
-      if (errno == EINTR || errno == ENOENT)
+    /* Critical: Always respond to unblock the tracee */
+    while (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+      if (errno == EINTR)
         continue;
-      break;
+      /* If process died (ENOENT), we can stop trying to respond to THIS
+       * notification */
+      if (errno == ENOENT)
+        break;
+      /* Fatal bridge error */
+      goto out;
     }
   }
 
+out:
   close(fd);
   return NULL;
 }
@@ -628,11 +660,6 @@ int start_rootfs(struct ds_config *cfg) {
   fix_networking_host(cfg);
   android_optimizations(1);
 
-  /* 7b. Initialize Seccomp Bridge IPC */
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, cfg->bridge_sock) < 0) {
-    ds_warn("Failed to create bridge socketpair: %s", strerror(errno));
-  }
-
   /* 8. Fork Monitor Process */
   pid_t monitor_pid = fork();
   if (monitor_pid < 0) {
@@ -687,23 +714,6 @@ int start_rootfs(struct ds_config *cfg) {
       }
     }
 
-    /* Receive Seccomp Bridge FD */
-    close(cfg->bridge_sock[1]);
-    int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
-    if (bridge_fd >= 0) {
-      pthread_t tid;
-      pthread_attr_t attr;
-      pthread_attr_init(&attr);
-      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-      if (pthread_create(&tid, &attr, seccomp_bridge_listener,
-                         (void *)(intptr_t)bridge_fd) == 0) {
-        ds_log("[SEC] Seccomp Bridge listener started");
-      } else {
-        close(bridge_fd);
-      }
-      pthread_attr_destroy(&attr);
-    }
-    close(cfg->bridge_sock[0]);
 
     /* Adaptive Cgroup Namespace (introduced in Linux 4.6).
      *
@@ -748,6 +758,11 @@ int start_rootfs(struct ds_config *cfg) {
       close(cfg->net_done_pipe[0]);
       close(cfg->net_done_pipe[1]);
       cfg->net_done_pipe[0] = cfg->net_done_pipe[1] = -1;
+    }
+
+    /* ── Seccomp Bridge IPC (fresh for every cycle) ── */
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, cfg->bridge_sock) < 0) {
+      cfg->bridge_sock[0] = cfg->bridge_sock[1] = -1;
     }
 
     /* ── Networking pipes (created fresh for every boot cycle) ── */
@@ -809,13 +824,21 @@ int start_rootfs(struct ds_config *cfg) {
     }
 
     pid_t mid_pid = fork();
-    if (mid_pid < 0)
+    if (mid_pid < 0) {
+      if (cfg->bridge_sock[0] >= 0) {
+        close(cfg->bridge_sock[0]);
+        close(cfg->bridge_sock[1]);
+      }
       _exit(EXIT_FAILURE);
+    }
 
     if (mid_pid == 0) {
       /* ── INTERMEDIATE PROCESS ──
        * Create a fresh PID namespace (and NET namespace for NAT/none modes)
        * for this boot cycle. */
+      if (cfg->bridge_sock[0] >= 0) {
+        close(cfg->bridge_sock[0]);
+      }
       int clone_flags = CLONE_NEWPID;
       if (cfg->net_mode != DS_NET_HOST)
         clone_flags |= CLONE_NEWNET;
@@ -913,6 +936,33 @@ int start_rootfs(struct ds_config *cfg) {
     }
 
     /* ── MONITOR continues here ── */
+
+    /* ── Receive Seccomp Bridge FD (Non-blocking) ── */
+    if (cfg->bridge_sock[0] >= 0) {
+      close(cfg->bridge_sock[1]);
+      cfg->bridge_sock[1] = -1;
+
+      struct pollfd pfd = {.fd = cfg->bridge_sock[0], .events = POLLIN};
+      int pr = poll(&pfd, 1, 5000); /* 5s timeout */
+      if (pr > 0) {
+        int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
+        if (bridge_fd >= 0) {
+          pthread_t tid;
+          pthread_attr_t attr;
+          pthread_attr_init(&attr);
+          pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+          if (pthread_create(&tid, &attr, seccomp_bridge_listener,
+                             (void *)(intptr_t)bridge_fd) == 0) {
+            ds_log("[SEC] Seccomp Bridge listener started");
+          } else {
+            close(bridge_fd);
+          }
+          pthread_attr_destroy(&attr);
+        }
+      }
+      close(cfg->bridge_sock[0]);
+      cfg->bridge_sock[0] = -1;
+    }
 
     /* Close sync pipe write end (intermediate handles it) */
     if (sync_pipe[1] >= 0) {

@@ -965,17 +965,17 @@ int setup_hardware_access(struct ds_config *cfg) {
   setup_x11_and_virgl_sockets(cfg);
 
   /* 3. Create virtual hardware bridge stub.
-   * This device node serves as the entry point for intercepted ioctls.
-   * Major 240 is reserved for local/experimental use. */
-  if (mknod("/dev/ds-bridge", S_IFCHR | 0666, makedev(240, 0)) < 0) {
-    if (errno != EEXIST) {
-      /* Fallback: try creating a plain file to bind-mount over if mknod is blocked */
-      int fd = open("/dev/ds-bridge", O_RDWR | O_CREAT | O_CLOEXEC, 0666);
-      if (fd >= 0)
-        close(fd);
+   * This safe stub allows containerized apps to interact with the bridge.
+   * We bind-mount a safe file from /run into /dev/ds-bridge. */
+  const char *bridge_dev = "/dev/ds-bridge";
+  if (access(DS_BRIDGE_STUB_PATH, F_OK) == 0) {
+    int fd = open(bridge_dev, O_RDWR | O_CREAT | O_CLOEXEC, 0666);
+    if (fd >= 0) {
+      close(fd);
+      if (mount(DS_BRIDGE_STUB_PATH, bridge_dev, NULL, MS_BIND, NULL) < 0) {
+        ds_warn("[SEC] Failed to bind mount seccomp bridge stub");
+      }
     }
-  } else {
-    chmod("/dev/ds-bridge", 0666);
   }
 
   return 0;

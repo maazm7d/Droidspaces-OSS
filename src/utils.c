@@ -929,10 +929,12 @@ int ds_send_fd(int sock, int fd) {
 
   *((int *)CMSG_DATA(cmsg)) = fd;
 
-  if (sendmsg(sock, &msg, 0) < 0)
-    return -1;
+  ssize_t ret;
+  do {
+    ret = sendmsg(sock, &msg, 0);
+  } while (ret < 0 && errno == EINTR);
 
-  return 0;
+  return (ret < 0) ? -1 : 0;
 }
 
 int ds_recv_fd(int sock) {
@@ -946,14 +948,23 @@ int ds_recv_fd(int sock) {
   msg.msg_control = ctrl_buf;
   msg.msg_controllen = sizeof(ctrl_buf);
 
-  if (recvmsg(sock, &msg, 0) < 0)
+  ssize_t ret;
+  do {
+    ret = recvmsg(sock, &msg, 0);
+  } while (ret < 0 && errno == EINTR);
+
+  if (ret <= 0)
     return -1;
 
   struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
   if (!cmsg || cmsg->cmsg_type != SCM_RIGHTS)
     return -1;
 
-  return *((int *)CMSG_DATA(cmsg));
+  int fd = *((int *)CMSG_DATA(cmsg));
+  if (fd < 0)
+    return -1;
+
+  return fd;
 }
 
 /* ---------------------------------------------------------------------------

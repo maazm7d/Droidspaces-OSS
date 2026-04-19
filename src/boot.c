@@ -419,6 +419,16 @@ int internal_boot(struct ds_config *cfg) {
   if (cfg->img_mount_point[0])
     write_file("run/droidspaces/mount", cfg->img_mount_point);
 
+  /* Create Seccomp Bridge Stub
+   * This safe stub allows containerized apps to interact with the bridge.
+   * Path: run/droidspaces/bridge (mapped to /dev/ds-bridge later)
+   * We use relative path here because we are still in the host namespace
+   * preparing the rootfs. */
+  char bridge_stub_rel[PATH_MAX];
+  snprintf(bridge_stub_rel, sizeof(bridge_stub_rel), "run/droidspaces/bridge");
+  write_file(bridge_stub_rel, "Droidspaces Bridge Stub\n");
+  chmod(bridge_stub_rel, 0666);
+
   /* Legacy compatibility: write version to the marker directory root */
   write_file("run/droidspaces/version", DS_VERSION);
 

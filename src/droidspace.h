@@ -129,6 +129,7 @@
 /* Seccomp Bridge Protocol */
 #define DS_IOC_MAGIC 'd'
 #define DS_IOC_GET_VERSION _IOR(DS_IOC_MAGIC, 1, char[32])
+#define DS_BRIDGE_STUB_PATH "/run/droidspaces/bridge"
 
 /* Colors for output */
 #define C_RESET "\033[0m"
