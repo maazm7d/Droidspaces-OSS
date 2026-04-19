@@ -129,6 +129,7 @@
 /* Seccomp Bridge Protocol */
 #define DS_IOC_MAGIC 'd'
 #define DS_IOC_GET_VERSION _IOR(DS_IOC_MAGIC, 1, char[32])
+#define DS_IOC_OPEN_DUMMY _IO(DS_IOC_MAGIC, 2)
 #define DS_BRIDGE_STUB_PATH "/run/droidspaces/bridge"
 
 #define DS_BRIDGE_VERSION 0x00010001 /* 1.1 */
@@ -138,8 +139,8 @@ struct ds_seccomp_handshake {
   uint32_t magic;
   uint32_t version;
   uint32_t length;
-  dev_t stub_dev;
-  ino_t stub_ino;
+  uint64_t stub_dev;
+  uint64_t stub_ino;
   uint32_t crc32; /* future use */
 };
 

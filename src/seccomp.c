@@ -262,7 +262,7 @@ int android_seccomp_setup(int is_systemd, int block_nested_ns) {
  *
  * Returns: Listener FD on success, -1 if unsupported or failed.
  */
-int ds_seccomp_setup_bridge(dev_t *dev_out, ino_t *ino_out) {
+int ds_seccomp_setup_bridge(uint64_t *dev_out, uint64_t *ino_out) {
   /* Runtime check: verify SECCOMP_RET_USER_NOTIF is supported by kernel */
   struct seccomp_notif_sizes sizes;
   if (syscall(__NR_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes) < 0) {
@@ -270,9 +270,11 @@ int ds_seccomp_setup_bridge(dev_t *dev_out, ino_t *ino_out) {
     return -1;
   }
 
-  /* Stat the bridge stub on the host side to capture its unique identity */
+  /* Stat the bridge stub on the host side to capture its unique identity.
+   * Note: We use the relative path because the child is in its future
+   * rootfs and haven't pivoted yet. */
   struct stat st;
-  if (stat(DS_BRIDGE_STUB_PATH, &st) < 0) {
+  if (stat("run/droidspaces/bridge", &st) < 0) {
     /* If stub is missing, bridge cannot be verified */
     return -1;
   }
@@ -300,11 +302,11 @@ int ds_seccomp_setup_bridge(dev_t *dev_out, ino_t *ino_out) {
 
       /* 3. Intercept ioctl only when it matches our bridge command.
        * args[1] is the request command. */
-      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 4),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 5),
       BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, DS_IOC_GET_VERSION, 0, 1),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, DS_IOC_GET_VERSION, 1, 0),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, DS_IOC_OPEN_DUMMY, 0, 1),
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
-      BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 
       /* Allow everything else */
       BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),

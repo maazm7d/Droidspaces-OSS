@@ -199,9 +199,11 @@ int internal_boot(struct ds_config *cfg) {
                             !(cfg->privileged_mask & DS_PRIV_NOSEC));
 
   /* We must ensure /run/droidspaces exists before setting up the bridge
-   * so the stub can be stat()'d for identity verification. */
+   * so the stub can be stat()'d for identity verification.
+   * Note: This is creating the stub RELATIVE to the container rootfs
+   * because we haven't pivoted yet, but we are in the new mount ns. */
   mkdir("run/droidspaces", 0755);
-  write_file(DS_BRIDGE_STUB_PATH, "");
+  write_file("run/droidspaces/bridge", "");
 
   /* Setup Seccomp Bridge - MUST happen before the first fork() or exec()
    * so children inherit the filter. The monitor process receives the

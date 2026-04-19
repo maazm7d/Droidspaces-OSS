@@ -39,6 +39,21 @@ struct seccomp_notif_resp {
 #define SECCOMP_IOCTL_NOTIF_ID_VALID _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
 #endif
 
+#ifndef SECCOMP_IOCTL_NOTIF_ADDFD
+struct seccomp_notif_addfd {
+  uint64_t id;
+  uint32_t flags;
+  uint32_t srcfd;
+  uint32_t newfd;
+  uint32_t newfd_flags;
+};
+#define SECCOMP_IOCTL_NOTIF_ADDFD _IOW(SECCOMP_IOC_MAGIC, 3, struct seccomp_notif_addfd)
+#endif
+
+#ifndef SECCOMP_ADDFD_FLAG_SEND
+#define SECCOMP_ADDFD_FLAG_SEND (1UL << 0)
+#endif
+
 /* ---------------------------------------------------------------------------
  * External Command Lock - CLI-only ownership
  *
@@ -170,21 +185,28 @@ int is_external_lock_active(const char *name) {
  * Seccomp Bridge Listener
  * ---------------------------------------------------------------------------*/
 
+struct ds_seccomp_worker_args {
+  struct ds_seccomp_ctx *ctx;
+  struct seccomp_notif req;
+};
+
 struct ds_seccomp_ctx {
   int notify_fd;
-  dev_t stub_dev;
-  ino_t stub_ino;
+  uint64_t stub_dev;
+  uint64_t stub_ino;
   pid_t container_pid;
   int stop;
   pthread_t tid;
 
-  /* Metrics */
+  /* Rate limiting & Metrics */
   uint64_t total_requests;
   uint64_t failed_requests;
+  time_t last_rate_limit_reset;
+  uint32_t requests_this_second;
 };
 
-static int is_bridge_fd(pid_t pid, int fd, dev_t expected_dev,
-                        ino_t expected_ino) {
+static int is_bridge_fd(pid_t pid, int fd, uint64_t expected_dev,
+                        uint64_t expected_ino) {
   char path[PATH_MAX];
   snprintf(path, sizeof(path), "/proc/%d/fd/%d", (int)pid, fd);
 
@@ -199,51 +221,40 @@ static int is_bridge_fd(pid_t pid, int fd, dev_t expected_dev,
 
 static void sigusr1_handler(int sig) { (void)sig; }
 
-static void *seccomp_bridge_listener(void *arg) {
-  /* Ensure we can be interrupted by SIGUSR1 */
-  signal(SIGUSR1, sigusr1_handler);
-  struct ds_seccomp_ctx *ctx = (struct ds_seccomp_ctx *)arg;
-  int fd = ctx->notify_fd;
-  struct seccomp_notif req;
+static void *seccomp_bridge_worker(void *arg) {
+  struct ds_seccomp_worker_args *w = (struct ds_seccomp_worker_args *)arg;
+  struct ds_seccomp_ctx *ctx = w->ctx;
+  struct seccomp_notif *req = &w->req;
   struct seccomp_notif_resp resp;
+  int fd = ctx->notify_fd;
 
-  while (!ctx->stop) {
-    memset(&req, 0, sizeof(req));
-    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
-      if (errno == EINTR)
-        continue;
-      break;
-    }
+  memset(&resp, 0, sizeof(resp));
+  resp.id = req->id;
+  resp.flags = 0;
+  resp.error = 0;
+  resp.val = 0;
 
-    ctx->total_requests++;
+  /* Security: Ensure the ioctl is directed at our bridge stub.
+   * req->pid is verified by the kernel for this notification. */
+  if (!is_bridge_fd(req->pid, (int)req->data.args[0], ctx->stub_dev,
+                    ctx->stub_ino)) {
+    resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+  } else if (req->data.nr == __NR_ioctl) {
+    uint32_t cmd = (uint32_t)req->data.args[1];
 
-    /* 1. TOCTOU: Verify the notification ID is still valid */
-    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ID_VALID, &req.id) < 0) {
-      /* Notification expired or process died */
-      continue;
-    }
-
-    memset(&resp, 0, sizeof(resp));
-    resp.id = req.id;
-    resp.flags = 0;
-    resp.error = 0;
-    resp.val = 0;
-
-    /* 2. Security: Ensure the ioctl is directed at our bridge stub.
-     * req.pid is verified by the kernel for this notification. */
-    if (!is_bridge_fd(req.pid, (int)req.data.args[0], ctx->stub_dev,
-                      ctx->stub_ino)) {
-      resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
-    } else if (req.data.nr == __NR_ioctl &&
-               req.data.args[1] == DS_IOC_GET_VERSION) {
+    /* ABI Normalization: ioctl command encoding can differ slightly
+     * between 32-bit and 64-bit processes on some architectures.
+     * We perform a normalized match for our specific commands. */
+    if (cmd == (uint32_t)DS_IOC_GET_VERSION) {
       /* Emulate success and return version string */
-      char version[] = "Droidspaces-Bridge-v1";
+      char version[] = "Droidspaces-Bridge-v1.2";
 
-      /* 3. Security: Validate user memory pointer.
+      /* Security: Validate user memory pointer.
        * args[2] is the buffer pointer for GET_VERSION.
-       * We expect char[32] per _IOR(DS_IOC_MAGIC, 1, char[32]). */
-      uintptr_t uaddr = (uintptr_t)req.data.args[2];
-      if (uaddr == 0) {
+       * We verify the pointer is non-null and avoid the very bottom
+       * of the address space. */
+      uintptr_t uaddr = (uintptr_t)req->data.args[2];
+      if (uaddr < 0x1000) {
         resp.error = -EFAULT;
       } else {
         struct iovec local, remote;
@@ -252,14 +263,15 @@ static void *seccomp_bridge_listener(void *arg) {
         remote.iov_base = (void *)uaddr;
         remote.iov_len = sizeof(version);
 
-        ssize_t nw = syscall(__NR_process_vm_writev, req.pid, &local, 1,
+        /* We perform a remote-copy of the emulated data back to the
+         * container. Note: process_vm_writev is not zero-copy; it
+         * involves a kernel-mediated transfer. */
+        ssize_t nw = syscall(__NR_process_vm_writev, req->pid, &local, 1,
                              &remote, 1, 0);
         if (nw < 0 && (errno == EPERM || errno == ENOSYS)) {
-          /* Fallback: try writing directly to /proc/pid/mem if
-           * process_vm_writev is blocked by YAMA/Security modules or missing.
-           */
+          /* Fallback: try writing directly to /proc/pid/mem */
           char mem_path[64];
-          snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", (int)req.pid);
+          snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", (int)req->pid);
           int mem_fd = open(mem_path, O_WRONLY);
           if (mem_fd >= 0) {
             nw = pwrite(mem_fd, local.iov_base, local.iov_len,
@@ -272,34 +284,134 @@ static void *seccomp_bridge_listener(void *arg) {
           resp.error = -errno;
           ctx->failed_requests++;
         } else if (nw != (ssize_t)sizeof(version)) {
-          /* Partial write is a failure for this fixed-size struct */
           resp.error = -EIO;
           ctx->failed_requests++;
         } else {
           resp.val = 0;
         }
       }
+    } else if (cmd == (uint32_t)DS_IOC_OPEN_DUMMY) {
+      /* Example of FD injection using SECCOMP_IOCTL_NOTIF_ADDFD.
+       * Injects /dev/null into the container process. */
+      int null_fd = open("/dev/null", O_RDWR | O_CLOEXEC);
+      if (null_fd < 0) {
+        resp.error = -errno;
+      } else {
+        struct seccomp_notif_addfd addfd;
+        memset(&addfd, 0, sizeof(addfd));
+        addfd.id = req->id;
+        addfd.srcfd = null_fd;
+        addfd.newfd = 0; /* Let kernel choose */
+        addfd.flags = SECCOMP_ADDFD_FLAG_SEND;
+
+        /* This syscall performs the injection and responds to the
+         * notification in one shot. */
+        int remote_fd = ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ADDFD,
+                              &addfd);
+        close(null_fd);
+
+        if (remote_fd < 0) {
+          resp.error = -errno;
+          ctx->failed_requests++;
+        } else {
+          /* ADDFD already responded, so we exit this worker early. */
+          free(w);
+          return NULL;
+        }
+      }
     } else {
-      /* Fallback for other ioctls on the bridge node if any */
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
     }
+  } else {
+    resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+  }
 
-    /* 4. Critical: Always respond to unblock the tracee.
-     * We re-verify ID validity before sending to mitigate PID reuse races. */
-    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ID_VALID, &req.id) == 0) {
-      while (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
-        if (errno == EINTR)
-          continue;
-        if (errno == ENOENT)
-          break;
-        goto out;
-      }
+  /* Critical: Always respond to unblock the tracee.
+   * We re-verify ID validity before sending to mitigate PID reuse races. */
+  if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ID_VALID, &req->id) == 0) {
+    while (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
     }
   }
 
-out:
+  free(w);
+  return NULL;
+}
+
+static void *seccomp_bridge_listener(void *arg) {
+  signal(SIGUSR1, sigusr1_handler);
+  struct ds_seccomp_ctx *ctx = (struct ds_seccomp_ctx *)arg;
+  int fd = ctx->notify_fd;
+
+  while (!ctx->stop) {
+    struct seccomp_notif req;
+    memset(&req, 0, sizeof(req));
+    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+
+    /* 1. Rate Limiting (Simple per-second cap) */
+    time_t now = time(NULL);
+    if (now != ctx->last_rate_limit_reset) {
+      ctx->last_rate_limit_reset = now;
+      ctx->requests_this_second = 0;
+    }
+    if (++ctx->requests_this_second > 1000) {
+      /* Drop or delay? For now, we continue but skip emulation to
+       * protect the Monitor. We log a warning if rate-limited. */
+      static time_t last_warn = 0;
+      if (now > last_warn + 5) {
+        ds_warn("[SEC] Bridge rate-limited for PID %d", (int)req.pid);
+        last_warn = now;
+      }
+
+      struct seccomp_notif_resp resp;
+      memset(&resp, 0, sizeof(resp));
+      resp.id = req.id;
+      resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+      ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp);
+      continue;
+    }
+
+    ctx->total_requests++;
+
+    /* 2. Dispatch to worker thread to avoid blocking the listener.
+     * In a production system, this would be a fixed-size thread pool.
+     * Here we use detached threads for implementation simplicity within
+     * Droidspaces' constraints. */
+    struct ds_seccomp_worker_args *w = malloc(sizeof(*w));
+    if (w) {
+      w->ctx = ctx;
+      w->req = req;
+      pthread_t wtid;
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+      if (pthread_create(&wtid, &attr, seccomp_bridge_worker, (void *)w) != 0) {
+        free(w);
+        /* Fallback: response with continue if thread creation fails */
+        struct seccomp_notif_resp resp;
+        memset(&resp, 0, sizeof(resp));
+        resp.id = req.id;
+        resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+        ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp);
+      }
+      pthread_attr_destroy(&attr);
+    } else {
+      /* Allocation failed */
+      struct seccomp_notif_resp resp;
+      memset(&resp, 0, sizeof(resp));
+      resp.id = req.id;
+      resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+      ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp);
+    }
+  }
+
   close(fd);
-  /* The context is freed by the owner when stopping the container */
   return NULL;
 }
 
