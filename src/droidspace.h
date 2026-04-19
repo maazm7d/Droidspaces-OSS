@@ -131,9 +131,16 @@
 #define DS_IOC_GET_VERSION _IOR(DS_IOC_MAGIC, 1, char[32])
 #define DS_BRIDGE_STUB_PATH "/run/droidspaces/bridge"
 
+#define DS_BRIDGE_VERSION 0x00010001 /* 1.1 */
+#define DS_BRIDGE_MAGIC 0x44534252   /* "DSBR" */
+
 struct ds_seccomp_handshake {
+  uint32_t magic;
+  uint32_t version;
+  uint32_t length;
   dev_t stub_dev;
   ino_t stub_ino;
+  uint32_t crc32; /* future use */
 };
 
 /* Colors for output */
@@ -321,6 +328,7 @@ struct ds_config {
 
   /* Seccomp Bridge IPC */
   int bridge_sock[2];
+  void *bridge_ctx; /* struct ds_seccomp_ctx * */
 
   /* Custom bind mounts (dynamically allocated) */
   struct ds_bind_mount *binds;

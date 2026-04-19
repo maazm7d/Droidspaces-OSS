@@ -972,8 +972,21 @@ int setup_hardware_access(struct ds_config *cfg) {
     int fd = open(bridge_dev, O_RDWR | O_CREAT | O_CLOEXEC, 0666);
     if (fd >= 0) {
       close(fd);
-      if (mount(DS_BRIDGE_STUB_PATH, bridge_dev, NULL, MS_BIND, NULL) < 0) {
-        ds_warn("[SEC] Failed to bind mount seccomp bridge stub");
+      if (mount(DS_BRIDGE_STUB_PATH, bridge_dev, NULL, MS_BIND, NULL) == 0) {
+        /* Verify mount succeeded by comparing dev/ino */
+        struct stat st_stub, st_dev;
+        if (stat(DS_BRIDGE_STUB_PATH, &st_stub) == 0 &&
+            stat(bridge_dev, &st_dev) == 0) {
+          if (st_stub.st_dev == st_dev.st_dev &&
+              st_stub.st_ino == st_dev.st_ino) {
+            ds_log("[SEC] Seccomp bridge stub mounted at %s", bridge_dev);
+          } else {
+            ds_warn("[SEC] Bridge mount verification failed (mismatched inode)");
+            umount2(bridge_dev, MNT_DETACH);
+          }
+        }
+      } else {
+        ds_warn("[SEC] Failed to bind mount bridge stub: %s", strerror(errno));
       }
     }
   }

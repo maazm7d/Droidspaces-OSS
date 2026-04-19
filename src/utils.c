@@ -932,7 +932,7 @@ int ds_send_fd(int sock, int fd) {
   ssize_t ret;
   do {
     ret = sendmsg(sock, &msg, 0);
-  } while (ret < 0 && errno == EINTR);
+  } while (ret < 0 && (errno == EINTR || errno == EAGAIN));
 
   return (ret < 0) ? -1 : 0;
 }
@@ -951,10 +951,15 @@ int ds_recv_fd(int sock) {
   ssize_t ret;
   do {
     ret = recvmsg(sock, &msg, 0);
-  } while (ret < 0 && errno == EINTR);
+  } while (ret < 0 && (errno == EINTR || errno == EAGAIN));
 
-  if (ret <= 0)
+  if (ret < 0)
     return -1;
+  if (ret == 0)
+    return -2; /* EOF */
+
+  if (ret != 2 || memcmp(data_buf, "FD", 2) != 0)
+    return -1; /* Framing error */
 
   struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
   if (!cmsg || cmsg->cmsg_type != SCM_RIGHTS)

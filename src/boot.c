@@ -198,17 +198,26 @@ int internal_boot(struct ds_config *cfg) {
                         cfg->block_nested_ns &&
                             !(cfg->privileged_mask & DS_PRIV_NOSEC));
 
+  /* We must ensure /run/droidspaces exists before setting up the bridge
+   * so the stub can be stat()'d for identity verification. */
+  mkdir("run/droidspaces", 0755);
+  write_file(DS_BRIDGE_STUB_PATH, "");
+
   /* Setup Seccomp Bridge - MUST happen before the first fork() or exec()
    * so children inherit the filter. The monitor process receives the
    * listener FD and handles emulated syscalls. */
   struct ds_seccomp_handshake hs;
   memset(&hs, 0, sizeof(hs));
+  hs.magic = DS_BRIDGE_MAGIC;
+  hs.version = DS_BRIDGE_VERSION;
+  hs.length = sizeof(hs);
 
   int bridge_fd = ds_seccomp_setup_bridge(&hs.stub_dev, &hs.stub_ino);
   if (bridge_fd >= 0) {
     close(cfg->bridge_sock[0]);
-    /* Send the stub identity data first, then the FD */
-    if (write(cfg->bridge_sock[1], &hs, sizeof(hs)) == sizeof(hs)) {
+    /* Send the stub identity data first, then the FD.
+     * We use write_all to ensure atomic delivery of the header. */
+    if (write_all(cfg->bridge_sock[1], &hs, sizeof(hs)) == sizeof(hs)) {
       ds_send_fd(cfg->bridge_sock[1], bridge_fd);
     }
     close(cfg->bridge_sock[1]);
@@ -406,7 +415,6 @@ int internal_boot(struct ds_config *cfg) {
   }
 
   /* 14. Write identity markers for PID discovery */
-  mkdir("run/droidspaces", 0755);
   char marker[PATH_MAX];
   snprintf(marker, sizeof(marker), "run/droidspaces/%s", cfg->uuid);
   write_file(marker, ""); /* empty UUID marker */

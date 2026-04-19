@@ -35,6 +35,10 @@ struct seccomp_notif_resp {
 #define SECCOMP_USER_NOTIF_FLAG_CONTINUE (1UL << 0)
 #endif
 
+#ifndef SECCOMP_IOCTL_NOTIF_ID_VALID
+#define SECCOMP_IOCTL_NOTIF_ID_VALID _IOW(SECCOMP_IOC_MAGIC, 2, uint64_t)
+#endif
+
 /* ---------------------------------------------------------------------------
  * External Command Lock - CLI-only ownership
  *
@@ -170,12 +174,19 @@ struct ds_seccomp_ctx {
   int notify_fd;
   dev_t stub_dev;
   ino_t stub_ino;
+  pid_t container_pid;
+  int stop;
+  pthread_t tid;
+
+  /* Metrics */
+  uint64_t total_requests;
+  uint64_t failed_requests;
 };
 
 static int is_bridge_fd(pid_t pid, int fd, dev_t expected_dev,
                         ino_t expected_ino) {
   char path[PATH_MAX];
-  snprintf(path, sizeof(path), "/proc/%d/fd/%d", pid, fd);
+  snprintf(path, sizeof(path), "/proc/%d/fd/%d", (int)pid, fd);
 
   struct stat st;
   if (stat(path, &st) < 0)
@@ -186,18 +197,30 @@ static int is_bridge_fd(pid_t pid, int fd, dev_t expected_dev,
   return (st.st_dev == expected_dev && st.st_ino == expected_ino);
 }
 
+static void sigusr1_handler(int sig) { (void)sig; }
+
 static void *seccomp_bridge_listener(void *arg) {
+  /* Ensure we can be interrupted by SIGUSR1 */
+  signal(SIGUSR1, sigusr1_handler);
   struct ds_seccomp_ctx *ctx = (struct ds_seccomp_ctx *)arg;
   int fd = ctx->notify_fd;
   struct seccomp_notif req;
   struct seccomp_notif_resp resp;
 
-  while (1) {
+  while (!ctx->stop) {
     memset(&req, 0, sizeof(req));
     if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
       if (errno == EINTR)
         continue;
       break;
+    }
+
+    ctx->total_requests++;
+
+    /* 1. TOCTOU: Verify the notification ID is still valid */
+    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ID_VALID, &req.id) < 0) {
+      /* Notification expired or process died */
+      continue;
     }
 
     memset(&resp, 0, sizeof(resp));
@@ -206,7 +229,8 @@ static void *seccomp_bridge_listener(void *arg) {
     resp.error = 0;
     resp.val = 0;
 
-    /* Security: Ensure the ioctl is directed at our bridge stub */
+    /* 2. Security: Ensure the ioctl is directed at our bridge stub.
+     * req.pid is verified by the kernel for this notification. */
     if (!is_bridge_fd(req.pid, (int)req.data.args[0], ctx->stub_dev,
                       ctx->stub_ino)) {
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
@@ -214,39 +238,68 @@ static void *seccomp_bridge_listener(void *arg) {
                req.data.args[1] == DS_IOC_GET_VERSION) {
       /* Emulate success and return version string */
       char version[] = "Droidspaces-Bridge-v1";
-      struct iovec local, remote;
-      local.iov_base = version;
-      local.iov_len = sizeof(version);
-      remote.iov_base = (void *)(uintptr_t)req.data.args[2];
-      remote.iov_len = sizeof(version);
 
-      if (syscall(__NR_process_vm_writev, req.pid, &local, 1, &remote, 1, 0) <
-          0) {
-        resp.error = -errno;
+      /* 3. Security: Validate user memory pointer.
+       * args[2] is the buffer pointer for GET_VERSION.
+       * We expect char[32] per _IOR(DS_IOC_MAGIC, 1, char[32]). */
+      uintptr_t uaddr = (uintptr_t)req.data.args[2];
+      if (uaddr == 0) {
+        resp.error = -EFAULT;
       } else {
-        resp.val = 0;
+        struct iovec local, remote;
+        local.iov_base = version;
+        local.iov_len = sizeof(version);
+        remote.iov_base = (void *)uaddr;
+        remote.iov_len = sizeof(version);
+
+        ssize_t nw = syscall(__NR_process_vm_writev, req.pid, &local, 1,
+                             &remote, 1, 0);
+        if (nw < 0 && (errno == EPERM || errno == ENOSYS)) {
+          /* Fallback: try writing directly to /proc/pid/mem if
+           * process_vm_writev is blocked by YAMA/Security modules or missing.
+           */
+          char mem_path[64];
+          snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", (int)req.pid);
+          int mem_fd = open(mem_path, O_WRONLY);
+          if (mem_fd >= 0) {
+            nw = pwrite(mem_fd, local.iov_base, local.iov_len,
+                        (off_t)(uintptr_t)remote.iov_base);
+            close(mem_fd);
+          }
+        }
+
+        if (nw < 0) {
+          resp.error = -errno;
+          ctx->failed_requests++;
+        } else if (nw != (ssize_t)sizeof(version)) {
+          /* Partial write is a failure for this fixed-size struct */
+          resp.error = -EIO;
+          ctx->failed_requests++;
+        } else {
+          resp.val = 0;
+        }
       }
     } else {
       /* Fallback for other ioctls on the bridge node if any */
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
     }
 
-    /* Critical: Always respond to unblock the tracee */
-    while (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
-      if (errno == EINTR)
-        continue;
-      /* If process died (ENOENT), we can stop trying to respond to THIS
-       * notification */
-      if (errno == ENOENT)
-        break;
-      /* Fatal bridge error */
-      goto out;
+    /* 4. Critical: Always respond to unblock the tracee.
+     * We re-verify ID validity before sending to mitigate PID reuse races. */
+    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_ID_VALID, &req.id) == 0) {
+      while (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+        if (errno == EINTR)
+          continue;
+        if (errno == ENOENT)
+          break;
+        goto out;
+      }
     }
   }
 
 out:
   close(fd);
-  free(ctx);
+  /* The context is freed by the owner when stopping the container */
   return NULL;
 }
 
@@ -332,6 +385,22 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
     /* Stale lock cleanup is handled by acquire_external_lock and
      * is_external_lock_active. Monitor only does resource cleanup
      * if no external lock is active. */
+  }
+
+  /* Seccomp Bridge cleanup */
+  if (cfg->bridge_ctx && !skip_unmount) {
+    struct ds_seccomp_ctx *ctx = (struct ds_seccomp_ctx *)cfg->bridge_ctx;
+    ctx->stop = 1;
+    /* Send a signal to the listener thread to wake it up if it's in recv() */
+    pthread_kill(ctx->tid, SIGUSR1);
+    pthread_join(ctx->tid, NULL);
+
+    ds_log("[SEC] Bridge stats: %lu requests (%lu failed)",
+           (unsigned long)ctx->total_requests,
+           (unsigned long)ctx->failed_requests);
+
+    free(ctx);
+    cfg->bridge_ctx = NULL;
   }
 
   /* Network cleanup: remove host veth and iptables rules */
@@ -961,35 +1030,46 @@ int start_rootfs(struct ds_config *cfg) {
 
         /* Read the handshake data (stub identity) */
         if (read(cfg->bridge_sock[0], &hs, sizeof(hs)) == sizeof(hs)) {
+          if (hs.magic != DS_BRIDGE_MAGIC || hs.version != DS_BRIDGE_VERSION) {
+            ds_error("[SEC] Bridge handshake mismatch: magic 0x%08x, ver 0x%08x",
+                     hs.magic, hs.version);
+            close(cfg->bridge_sock[0]);
+            cfg->bridge_sock[0] = -1;
+            goto skip_bridge;
+          }
+
           /* Read the notification FD */
           int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
           if (bridge_fd >= 0) {
-            struct ds_seccomp_ctx *ctx = malloc(sizeof(*ctx));
+            struct ds_seccomp_ctx *ctx = calloc(1, sizeof(*ctx));
             if (ctx) {
               ctx->notify_fd = bridge_fd;
               ctx->stub_dev = hs.stub_dev;
               ctx->stub_ino = hs.stub_ino;
+              ctx->container_pid = cfg->container_pid;
 
-              pthread_t tid;
-              pthread_attr_t attr;
-              pthread_attr_init(&attr);
-              pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-              if (pthread_create(&tid, &attr, seccomp_bridge_listener,
+              if (pthread_create(&ctx->tid, NULL, seccomp_bridge_listener,
                                  (void *)ctx) == 0) {
-                ds_log("[SEC] Seccomp Bridge listener started");
+                ds_log("[SEC] Seccomp Bridge listener started (TID %lu)",
+                       (unsigned long)ctx->tid);
+                cfg->bridge_ctx = ctx;
               } else {
+                ds_error("[SEC] Failed to start bridge thread: %s",
+                         strerror(errno));
                 close(bridge_fd);
                 free(ctx);
               }
-              pthread_attr_destroy(&attr);
             } else {
               close(bridge_fd);
             }
           }
         }
       }
-      close(cfg->bridge_sock[0]);
-      cfg->bridge_sock[0] = -1;
+    skip_bridge:
+      if (cfg->bridge_sock[0] >= 0) {
+        close(cfg->bridge_sock[0]);
+        cfg->bridge_sock[0] = -1;
+      }
     }
 
     /* Close sync pipe write end (intermediate handles it) */
