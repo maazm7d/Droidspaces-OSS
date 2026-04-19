@@ -131,6 +131,11 @@
 #define DS_IOC_GET_VERSION _IOR(DS_IOC_MAGIC, 1, char[32])
 #define DS_BRIDGE_STUB_PATH "/run/droidspaces/bridge"
 
+struct ds_seccomp_handshake {
+  dev_t stub_dev;
+  ino_t stub_ino;
+};
+
 /* Colors for output */
 #define C_RESET "\033[0m"
 #define C_RED "\033[1;31m"
@@ -445,7 +450,7 @@ void android_remount_data_suid(void);
 int android_setup_storage(const char *rootfs_path);
 int android_seccomp_setup(int is_systemd, int block_nested_ns);
 int ds_seccomp_apply_minimal(int hw_access, int privileged_mask);
-int ds_seccomp_setup_bridge(void);
+int ds_seccomp_setup_bridge(dev_t *dev_out, ino_t *ino_out);
 
 /* ---------------------------------------------------------------------------
  * mount.c

@@ -166,29 +166,29 @@ int is_external_lock_active(const char *name) {
  * Seccomp Bridge Listener
  * ---------------------------------------------------------------------------*/
 
-static int is_bridge_fd(pid_t pid, int fd) {
-  char path[PATH_MAX], link[PATH_MAX];
+struct ds_seccomp_ctx {
+  int notify_fd;
+  dev_t stub_dev;
+  ino_t stub_ino;
+};
+
+static int is_bridge_fd(pid_t pid, int fd, dev_t expected_dev,
+                        ino_t expected_ino) {
+  char path[PATH_MAX];
   snprintf(path, sizeof(path), "/proc/%d/fd/%d", pid, fd);
-  ssize_t len = readlink(path, link, sizeof(link) - 1);
-  if (len < 0)
-    return 0;
-  link[len] = '\0';
 
-  /* Security: Check that the FD points to our bridge stub.
-   * Since the monitor (host namespace) and the tracee (container namespace)
-   * see different absolute paths, we verify the suffix. */
-  const char *suffix = DS_BRIDGE_STUB_PATH;
-  size_t link_len = strlen(link);
-  size_t suffix_len = strlen(suffix);
-
-  if (link_len < suffix_len)
+  struct stat st;
+  if (stat(path, &st) < 0)
     return 0;
 
-  return (strcmp(link + (link_len - suffix_len), suffix) == 0);
+  /* Security: Cryptographically verify the FD identity using device/inode.
+   * Path checks alone are insufficient due to mount masking or symlinks. */
+  return (st.st_dev == expected_dev && st.st_ino == expected_ino);
 }
 
 static void *seccomp_bridge_listener(void *arg) {
-  int fd = (int)(intptr_t)arg;
+  struct ds_seccomp_ctx *ctx = (struct ds_seccomp_ctx *)arg;
+  int fd = ctx->notify_fd;
   struct seccomp_notif req;
   struct seccomp_notif_resp resp;
 
@@ -207,7 +207,8 @@ static void *seccomp_bridge_listener(void *arg) {
     resp.val = 0;
 
     /* Security: Ensure the ioctl is directed at our bridge stub */
-    if (!is_bridge_fd(req.pid, (int)req.data.args[0])) {
+    if (!is_bridge_fd(req.pid, (int)req.data.args[0], ctx->stub_dev,
+                      ctx->stub_ino)) {
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
     } else if (req.data.nr == __NR_ioctl &&
                req.data.args[1] == DS_IOC_GET_VERSION) {
@@ -245,6 +246,7 @@ static void *seccomp_bridge_listener(void *arg) {
 
 out:
   close(fd);
+  free(ctx);
   return NULL;
 }
 
@@ -861,8 +863,17 @@ int start_rootfs(struct ds_config *cfg) {
           if (mid_sync_pipe[1] >= 0)
             close(mid_sync_pipe[1]);
         }
+        if (cfg->bridge_sock[0] >= 0) {
+          close(cfg->bridge_sock[0]);
+        }
         close(sync_pipe[1]);
         _exit(internal_boot(cfg));
+      }
+
+      /* Intermediate: Close Seccomp Bridge IPC writer end */
+      if (cfg->bridge_sock[1] >= 0) {
+        close(cfg->bridge_sock[1]);
+        cfg->bridge_sock[1] = -1;
       }
 
       /* Intermediate: redirect stdio to /dev/null NOW (after forking init).
@@ -945,19 +956,36 @@ int start_rootfs(struct ds_config *cfg) {
       struct pollfd pfd = {.fd = cfg->bridge_sock[0], .events = POLLIN};
       int pr = poll(&pfd, 1, 5000); /* 5s timeout */
       if (pr > 0) {
-        int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
-        if (bridge_fd >= 0) {
-          pthread_t tid;
-          pthread_attr_t attr;
-          pthread_attr_init(&attr);
-          pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-          if (pthread_create(&tid, &attr, seccomp_bridge_listener,
-                             (void *)(intptr_t)bridge_fd) == 0) {
-            ds_log("[SEC] Seccomp Bridge listener started");
-          } else {
-            close(bridge_fd);
+        struct ds_seccomp_handshake hs;
+        memset(&hs, 0, sizeof(hs));
+
+        /* Read the handshake data (stub identity) */
+        if (read(cfg->bridge_sock[0], &hs, sizeof(hs)) == sizeof(hs)) {
+          /* Read the notification FD */
+          int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
+          if (bridge_fd >= 0) {
+            struct ds_seccomp_ctx *ctx = malloc(sizeof(*ctx));
+            if (ctx) {
+              ctx->notify_fd = bridge_fd;
+              ctx->stub_dev = hs.stub_dev;
+              ctx->stub_ino = hs.stub_ino;
+
+              pthread_t tid;
+              pthread_attr_t attr;
+              pthread_attr_init(&attr);
+              pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+              if (pthread_create(&tid, &attr, seccomp_bridge_listener,
+                                 (void *)ctx) == 0) {
+                ds_log("[SEC] Seccomp Bridge listener started");
+              } else {
+                close(bridge_fd);
+                free(ctx);
+              }
+              pthread_attr_destroy(&attr);
+            } else {
+              close(bridge_fd);
+            }
           }
-          pthread_attr_destroy(&attr);
         }
       }
       close(cfg->bridge_sock[0]);

@@ -201,10 +201,16 @@ int internal_boot(struct ds_config *cfg) {
   /* Setup Seccomp Bridge - MUST happen before the first fork() or exec()
    * so children inherit the filter. The monitor process receives the
    * listener FD and handles emulated syscalls. */
-  int bridge_fd = ds_seccomp_setup_bridge();
+  struct ds_seccomp_handshake hs;
+  memset(&hs, 0, sizeof(hs));
+
+  int bridge_fd = ds_seccomp_setup_bridge(&hs.stub_dev, &hs.stub_ino);
   if (bridge_fd >= 0) {
     close(cfg->bridge_sock[0]);
-    ds_send_fd(cfg->bridge_sock[1], bridge_fd);
+    /* Send the stub identity data first, then the FD */
+    if (write(cfg->bridge_sock[1], &hs, sizeof(hs)) == sizeof(hs)) {
+      ds_send_fd(cfg->bridge_sock[1], bridge_fd);
+    }
     close(cfg->bridge_sock[1]);
     close(bridge_fd);
   } else {

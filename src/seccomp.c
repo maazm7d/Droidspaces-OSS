@@ -262,13 +262,24 @@ int android_seccomp_setup(int is_systemd, int block_nested_ns) {
  *
  * Returns: Listener FD on success, -1 if unsupported or failed.
  */
-int ds_seccomp_setup_bridge(void) {
+int ds_seccomp_setup_bridge(dev_t *dev_out, ino_t *ino_out) {
   /* Runtime check: verify SECCOMP_RET_USER_NOTIF is supported by kernel */
   struct seccomp_notif_sizes sizes;
   if (syscall(__NR_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes) < 0) {
     /* Kernel doesn't support user notifications (Linux < 5.0) */
     return -1;
   }
+
+  /* Stat the bridge stub on the host side to capture its unique identity */
+  struct stat st;
+  if (stat(DS_BRIDGE_STUB_PATH, &st) < 0) {
+    /* If stub is missing, bridge cannot be verified */
+    return -1;
+  }
+  if (dev_out)
+    *dev_out = st.st_dev;
+  if (ino_out)
+    *ino_out = st.st_ino;
 
   struct sock_filter filter[] = {
       /* 1. Validate Architecture */
