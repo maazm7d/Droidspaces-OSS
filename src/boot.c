@@ -198,6 +198,21 @@ int internal_boot(struct ds_config *cfg) {
                         cfg->block_nested_ns &&
                             !(cfg->privileged_mask & DS_PRIV_NOSEC));
 
+  /* Setup Seccomp Bridge - MUST happen before the first fork() or exec()
+   * so children inherit the filter. The monitor process receives the
+   * listener FD and handles emulated syscalls. */
+  int bridge_fd = ds_seccomp_setup_bridge();
+  if (bridge_fd >= 0) {
+    close(cfg->bridge_sock[0]);
+    ds_send_fd(cfg->bridge_sock[1], bridge_fd);
+    close(cfg->bridge_sock[1]);
+    close(bridge_fd);
+  } else {
+    /* Fallback: bridge unsupported on this kernel */
+    close(cfg->bridge_sock[0]);
+    close(cfg->bridge_sock[1]);
+  }
+
   /* 3. Setup volatile overlay INSIDE the container's mount namespace.
    * This MUST happen here (not in parent) so the overlay's connection to
    * its lowerdir (e.g. a loop-mounted image) survives mount privatization. */

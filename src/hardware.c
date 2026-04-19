@@ -964,5 +964,19 @@ int setup_hardware_access(struct ds_config *cfg) {
    * flag on Android) */
   setup_x11_and_virgl_sockets(cfg);
 
+  /* 3. Create virtual hardware bridge stub.
+   * This device node serves as the entry point for intercepted ioctls.
+   * Major 240 is reserved for local/experimental use. */
+  if (mknod("/dev/ds-bridge", S_IFCHR | 0666, makedev(240, 0)) < 0) {
+    if (errno != EEXIST) {
+      /* Fallback: try creating a plain file to bind-mount over if mknod is blocked */
+      int fd = open("/dev/ds-bridge", O_RDWR | O_CREAT | O_CLOEXEC, 0666);
+      if (fd >= 0)
+        close(fd);
+    }
+  } else {
+    chmod("/dev/ds-bridge", 0666);
+  }
+
   return 0;
 }

@@ -6,6 +6,19 @@
  */
 
 #include "droidspace.h"
+#include <linux/seccomp.h>
+
+/* Compatibility for older headers */
+#ifndef SECCOMP_IOCTL_NOTIF_RECV
+#define SECCOMP_IOC_MAGIC '!'
+#define SECCOMP_IOCTL_NOTIF_RECV _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
+#define SECCOMP_IOCTL_NOTIF_SEND                                               \
+  _IOWR(SECCOMP_IOC_MAGIC, 1, struct seccomp_notif_resp)
+#endif
+
+#ifndef SECCOMP_USER_NOTIF_FLAG_CONTINUE
+#define SECCOMP_USER_NOTIF_FLAG_CONTINUE (1UL << 0)
+#endif
 
 /* ---------------------------------------------------------------------------
  * External Command Lock - CLI-only ownership
@@ -132,6 +145,61 @@ int is_external_lock_active(const char *name) {
   /* Remove stale lock */
   unlink(lock_path);
   return 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * Seccomp Bridge Listener
+ * ---------------------------------------------------------------------------*/
+
+static void *seccomp_bridge_listener(void *arg) {
+  int fd = (int)(intptr_t)arg;
+  struct seccomp_notif req;
+  struct seccomp_notif_resp resp;
+
+  while (1) {
+    memset(&req, 0, sizeof(req));
+    if (ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+
+    memset(&resp, 0, sizeof(resp));
+    resp.id = req.id;
+    resp.error = 0;
+    resp.val = 0;
+    resp.flags = 0;
+
+    /* Handle custom ioctl bridge command */
+    if (req.data.nr == __NR_ioctl && req.data.args[1] == DS_IOC_GET_VERSION) {
+      /* Emulate success and return version string */
+      char version[] = "Droidspaces-Bridge-v1";
+      struct iovec local, remote;
+      local.iov_base = version;
+      local.iov_len = sizeof(version);
+      remote.iov_base = (void *)req.data.args[2];
+      remote.iov_len = sizeof(version);
+
+      if (syscall(__NR_process_vm_writev, req.pid, &local, 1, &remote, 1, 0) <
+          0) {
+        resp.error = -errno;
+      } else {
+        resp.val = 0;
+      }
+    } else {
+      /* Continue the syscall in the kernel */
+      resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+    }
+
+    if (ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+  }
+
+  close(fd);
+  return NULL;
 }
 
 /* ---------------------------------------------------------------------------
@@ -546,6 +614,11 @@ int start_rootfs(struct ds_config *cfg) {
   fix_networking_host(cfg);
   android_optimizations(1);
 
+  /* 7b. Initialize Seccomp Bridge IPC */
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, cfg->bridge_sock) < 0) {
+    ds_warn("Failed to create bridge socketpair: %s", strerror(errno));
+  }
+
   /* 8. Fork Monitor Process */
   pid_t monitor_pid = fork();
   if (monitor_pid < 0) {
@@ -599,6 +672,24 @@ int start_rootfs(struct ds_config *cfg) {
         _exit(EXIT_FAILURE);
       }
     }
+
+    /* Receive Seccomp Bridge FD */
+    close(cfg->bridge_sock[1]);
+    int bridge_fd = ds_recv_fd(cfg->bridge_sock[0]);
+    if (bridge_fd >= 0) {
+      pthread_t tid;
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+      if (pthread_create(&tid, &attr, seccomp_bridge_listener,
+                         (void *)(intptr_t)bridge_fd) == 0) {
+        ds_log("[SEC] Seccomp Bridge listener started");
+      } else {
+        close(bridge_fd);
+      }
+      pthread_attr_destroy(&attr);
+    }
+    close(cfg->bridge_sock[0]);
 
     /* Adaptive Cgroup Namespace (introduced in Linux 4.6).
      *

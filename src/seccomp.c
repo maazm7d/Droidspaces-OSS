@@ -12,6 +12,15 @@
 #include <stddef.h>
 #include <sys/prctl.h>
 
+/* Compatibility for older headers */
+#ifndef SECCOMP_FILTER_FLAG_NEW_LISTENER
+#define SECCOMP_FILTER_FLAG_NEW_LISTENER (1UL << 3)
+#endif
+
+#ifndef SECCOMP_RET_USER_NOTIF
+#define SECCOMP_RET_USER_NOTIF 0x7fc00000U
+#endif
+
 /* ---------------------------------------------------------------------------
  * Android System Call Filtering (Seccomp)
  * ---------------------------------------------------------------------------*/
@@ -234,4 +243,64 @@ int android_seccomp_setup(int is_systemd, int block_nested_ns) {
 
   free(final_filter);
   return 0;
+}
+
+/**
+ * ds_seccomp_setup_bridge()
+ *
+ * Applies a seccomp filter that intercepts ioctl calls and returns
+ * a user-space notification file descriptor.
+ *
+ * Returns: Listener FD on success, -1 if unsupported or failed.
+ */
+int ds_seccomp_setup_bridge(void) {
+  struct sock_filter filter[] = {
+      /* 1. Validate Architecture */
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+#if defined(__aarch64__)
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0),
+#elif defined(__x86_64__)
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_X86_64, 1, 0),
+#elif defined(__arm__)
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_ARM, 1, 0),
+#elif defined(__i386__)
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_I386, 1, 0),
+#endif
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+
+      /* 2. Load syscall number */
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+
+      /* 3. Intercept ioctl only when it matches our bridge command.
+       * args[1] is the request command. */
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ioctl, 0, 4),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
+      BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, DS_IOC_GET_VERSION, 0, 1),
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF),
+      BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+
+      /* Allow everything else */
+      BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+  };
+
+  struct sock_fprog prog = {
+      .len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
+      .filter = filter,
+  };
+
+  /* The syscall() is required because prctl() doesn't support flags.
+   * SECCOMP_FILTER_FLAG_NEW_LISTENER returns a new FD on success. */
+  int fd = (int)syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                        SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
+
+  if (fd < 0) {
+    if (errno == ENOSYS || errno == EINVAL) {
+      /* Kernel too old or doesn't support user notifications */
+      return -1;
+    }
+    ds_warn("[SEC] Failed to setup bridge listener: %s", strerror(errno));
+    return -1;
+  }
+
+  return fd;
 }

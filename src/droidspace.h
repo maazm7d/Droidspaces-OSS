@@ -126,6 +126,10 @@
 /* Signals */
 #define DS_SIG_STOP (SIGRTMIN + 3)
 
+/* Seccomp Bridge Protocol */
+#define DS_IOC_MAGIC 'd'
+#define DS_IOC_GET_VERSION _IOR(DS_IOC_MAGIC, 1, char[32])
+
 /* Colors for output */
 #define C_RESET "\033[0m"
 #define C_RED "\033[1;31m"
@@ -309,6 +313,9 @@ struct ds_config {
   int net_ready_pipe[2]; /* child → monitor: "I am in my new netns"  */
   int net_done_pipe[2];  /* monitor → child: "veth peer is in place" */
 
+  /* Seccomp Bridge IPC */
+  int bridge_sock[2];
+
   /* Custom bind mounts (dynamically allocated) */
   struct ds_bind_mount *binds;
   int bind_count;
@@ -437,6 +444,7 @@ void android_remount_data_suid(void);
 int android_setup_storage(const char *rootfs_path);
 int android_seccomp_setup(int is_systemd, int block_nested_ns);
 int ds_seccomp_apply_minimal(int hw_access, int privileged_mask);
+int ds_seccomp_setup_bridge(void);
 
 /* ---------------------------------------------------------------------------
  * mount.c
