@@ -8,8 +8,22 @@
 #include "droidspace.h"
 #include <linux/seccomp.h>
 
-/* Compatibility for older headers */
+/* Compatibility for older headers (pre-5.0) */
 #ifndef SECCOMP_IOCTL_NOTIF_RECV
+struct seccomp_notif {
+  uint64_t id;
+  uint32_t pid;
+  uint32_t flags;
+  struct seccomp_data data;
+};
+
+struct seccomp_notif_resp {
+  uint64_t id;
+  int64_t val;
+  int32_t error;
+  uint32_t flags;
+};
+
 #define SECCOMP_IOC_MAGIC '!'
 #define SECCOMP_IOCTL_NOTIF_RECV _IOWR(SECCOMP_IOC_MAGIC, 0, struct seccomp_notif)
 #define SECCOMP_IOCTL_NOTIF_SEND                                               \
