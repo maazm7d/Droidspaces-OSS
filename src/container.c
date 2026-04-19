@@ -172,7 +172,7 @@ static void *seccomp_bridge_listener(void *arg) {
 
   while (1) {
     memset(&req, 0, sizeof(req));
-    if (ioctl(fd, (unsigned long)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
+    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
       if (errno == EINTR)
         continue;
       break;
@@ -205,7 +205,7 @@ static void *seccomp_bridge_listener(void *arg) {
       resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
     }
 
-    if (ioctl(fd, (unsigned long)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+    if (ioctl(fd, (int)(uintptr_t)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
       if (errno == EINTR || errno == ENOENT)
         continue;
       break;
