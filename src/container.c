@@ -890,14 +890,17 @@ int start_rootfs(struct ds_config *cfg) {
         }
 
         /* Send handshake to init */
-        struct ds_net_handshake hs;
-        ds_net_derive_handshake(init_pid, cfg, &hs);
-        ds_log("[NET] Monitor: sending DONE: peer=%s ip=%s", hs.peer_name,
-               hs.ip_str);
-        if (write(cfg->net_done_pipe[1], &hs, sizeof(hs)) !=
-            (ssize_t)sizeof(hs))
-          ds_warn("[NET] Monitor: failed to write handshake to init");
-        close(cfg->net_done_pipe[1]);
+        if (cfg->net_mode != DS_NET_HOST) {
+          struct ds_net_handshake hs;
+          ds_net_derive_handshake(init_pid, cfg, &hs);
+          ds_log("[NET] Monitor: sending DONE: peer=%s ip=%s", hs.peer_name,
+                 hs.ip_str);
+          if (write(cfg->net_done_pipe[1], &hs, sizeof(hs)) !=
+              (ssize_t)sizeof(hs))
+            ds_warn("[NET] Monitor: failed to write handshake to init");
+          close(cfg->net_done_pipe[1]);
+          cfg->net_done_pipe[1] = -1;
+        }
       }
     }
     /* ─────────────────────────────────────────────────────────────────── */

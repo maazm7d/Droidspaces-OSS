@@ -753,7 +753,11 @@ int ds_config_load_by_name(const char *name, struct ds_config *cfg) {
   snprintf(config_path, sizeof(config_path),
            "%s/Containers/%s/container.config", get_workspace_dir(), safe_name);
 
-  return ds_config_load(config_path, cfg);
+  int ret = ds_config_load(config_path, cfg);
+  if (ret == 0 && !cfg->config_file_existed) {
+    return -1; /* File not found is an error for load_by_name */
+  }
+  return ret;
 }
 
 int ds_config_save_by_name(const char *name, struct ds_config *cfg) {
