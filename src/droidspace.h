@@ -354,6 +354,8 @@ struct ds_config {
   long long cpu_quota;    /* cpu.max quota in us */
   long long cpu_period;   /* cpu.max period in us */
   long long pids_limit;   /* pids.max */
+
+  int virtualization; /* --virtualization: enable resource virtualization */
 };
 
 /* ---------------------------------------------------------------------------

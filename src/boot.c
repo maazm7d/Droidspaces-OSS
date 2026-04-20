@@ -6,6 +6,7 @@
  */
 
 #include "droidspace.h"
+#include "virtualize.h"
 #include <linux/capability.h>
 #include <sys/prctl.h>
 
@@ -460,6 +461,11 @@ int internal_boot(struct ds_config *cfg) {
 
   /* Apply jail mask after pivot_root for correct path resolution */
   ds_apply_jail_mask(cfg->hw_access, cfg->privileged_mask);
+
+  /* 18b. Resource Virtualization (meminfo, cpuinfo, etc) */
+  if (cfg->virtualization) {
+    ds_virtualize_init(cfg);
+  }
 
   /* 19. Configure rootfs networking (hostname, resolv.conf, etc) */
   fix_networking_rootfs(cfg);

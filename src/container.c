@@ -6,6 +6,7 @@
  */
 
 #include "droidspace.h"
+#include "virtualize.h"
 
 /* ---------------------------------------------------------------------------
  * External Command Lock - CLI-only ownership
@@ -645,11 +646,17 @@ int start_rootfs(struct ds_config *cfg) {
       cfg->net_done_pipe[0] = cfg->net_done_pipe[1] = -1;
     }
 
-    /* ── Networking pipes (created fresh for every boot cycle) ── */
+    /* ── Intermediate sync pipes (created fresh for every boot cycle) ── */
     int mid_sync_pipe[2] = {-1, -1};
+    if (pipe(mid_sync_pipe) < 0) {
+      ds_error("Failed to create mid sync pipe: %s", strerror(errno));
+      _exit(EXIT_FAILURE);
+    }
+    fcntl(mid_sync_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(mid_sync_pipe[1], F_SETFD, FD_CLOEXEC);
+
     if (cfg->net_mode != DS_NET_HOST) {
-      if (pipe(cfg->net_ready_pipe) < 0 || pipe(cfg->net_done_pipe) < 0 ||
-          pipe(mid_sync_pipe) < 0) {
+      if (pipe(cfg->net_ready_pipe) < 0 || pipe(cfg->net_done_pipe) < 0) {
         ds_error("Failed to create NAT sync pipes: %s", strerror(errno));
         _exit(EXIT_FAILURE);
       }
@@ -659,8 +666,6 @@ int start_rootfs(struct ds_config *cfg) {
       fcntl(cfg->net_ready_pipe[1], F_SETFD, FD_CLOEXEC);
       fcntl(cfg->net_done_pipe[0], F_SETFD, FD_CLOEXEC);
       fcntl(cfg->net_done_pipe[1], F_SETFD, FD_CLOEXEC);
-      fcntl(mid_sync_pipe[0], F_SETFD, FD_CLOEXEC);
-      fcntl(mid_sync_pipe[1], F_SETFD, FD_CLOEXEC);
 
       ds_log("[NET] Sync pipes created for net_mode=%d", cfg->net_mode);
     }
@@ -759,12 +764,12 @@ int start_rootfs(struct ds_config *cfg) {
         }
       }
 
-      /* Send init PID to monitor so it can target /proc/<pid>/ns/net */
-      if (cfg->net_mode != DS_NET_HOST && mid_sync_pipe[1] >= 0) {
+      /* Send init PID to monitor so it can target /proc/<pid>/ns/net or vproc */
+      if (mid_sync_pipe[1] >= 0) {
         if (write(mid_sync_pipe[1], &init_pid, sizeof(pid_t)) !=
             sizeof(pid_t)) {
           ds_warn(
-              "[NET] Intermediate: failed to write init_pid to mid_sync_pipe");
+              "Intermediate: failed to write init_pid to mid_sync_pipe");
         }
         close(mid_sync_pipe[1]);
         close(mid_sync_pipe[0]);
@@ -815,49 +820,42 @@ int start_rootfs(struct ds_config *cfg) {
       sync_pipe[1] = -1;
     }
 
-    /* ── Monitor: NAT networking handshake ─────────────────────────────
-     *
-     * Sequence (all non-blocking after pipes are ready):
-     *   1. Read init_pid from mid_sync_pipe[0]
-     *   2. Read "ready" byte from net_ready_pipe[0]  (init sent it)
-     *   3. Call setup_veth_host_side → creates bridge/veth/rules
-     *   4. Write ds_net_handshake to net_done_pipe[1] (init reads it)
-     *
-     * This handshake ensures the veth peer is moved into the container's
-     * netns while the init process is alive and waiting, avoiding the race
-     * where we try to open /proc/<pid>/ns/net before the process exists. */
-    if (cfg->net_mode != DS_NET_HOST && mid_sync_pipe[0] >= 0) {
+    /* ── Monitor Handshake ───────────────────────────────────────────── */
+    if (mid_sync_pipe[0] >= 0) {
       close(mid_sync_pipe[1]); /* monitor is reader */
 
-      pid_t netns_pid = -1;
-      ssize_t nr = read(mid_sync_pipe[0], &netns_pid, sizeof(pid_t));
+      pid_t init_pid = -1;
+      ssize_t nr = read(mid_sync_pipe[0], &init_pid, sizeof(pid_t));
       close(mid_sync_pipe[0]);
 
-      if (nr != sizeof(pid_t) || netns_pid <= 0) {
-        ds_warn("[NET] Monitor: failed to read init_pid from mid_sync_pipe "
+      if (nr != sizeof(pid_t) || init_pid <= 0) {
+        ds_warn("Monitor: failed to read init_pid from mid_sync_pipe "
                 "(nr=%zd pid=%d)",
-                nr, (int)netns_pid);
+                nr, (int)init_pid);
       } else {
-        ds_log("[NET] Monitor: received init_pid=%d, waiting for READY...",
-               (int)netns_pid);
-        cfg->container_pid = netns_pid;
+        cfg->container_pid = init_pid;
 
-        /* Close the ends we don't need */
-        close(cfg->net_ready_pipe[1]); /* monitor reads, init writes */
-        close(cfg->net_done_pipe[0]);  /* monitor writes, init reads  */
+        if (cfg->net_mode != DS_NET_HOST) {
+          ds_log("[NET] Monitor: received init_pid=%d, waiting for READY...",
+                 (int)init_pid);
 
-        char rdy;
-        if (read(cfg->net_ready_pipe[0], &rdy, 1) < 0) {
-          ds_warn("[NET] Monitor: failed to read READY signal: %s",
-                  strerror(errno));
-        } else {
-          ds_log("[NET] Monitor: READY received from init (pid=%d)",
-                 (int)netns_pid);
+          /* Close the ends we don't need */
+          close(cfg->net_ready_pipe[1]); /* monitor reads, init writes */
+          close(cfg->net_done_pipe[0]);  /* monitor writes, init reads  */
+
+          char rdy;
+          if (read(cfg->net_ready_pipe[0], &rdy, 1) < 0) {
+            ds_warn("[NET] Monitor: failed to read READY signal: %s",
+                    strerror(errno));
+          } else {
+            ds_log("[NET] Monitor: READY received from init (pid=%d)",
+                   (int)init_pid);
+          }
+          close(cfg->net_ready_pipe[0]);
         }
-        close(cfg->net_ready_pipe[0]);
 
         if (cfg->net_mode == DS_NET_NAT) {
-          if (setup_veth_host_side(cfg, netns_pid) < 0) {
+          if (setup_veth_host_side(cfg, init_pid) < 0) {
             ds_warn("[NET] Monitor: setup_veth_host_side failed - "
                     "container will have no internet");
           } else {
@@ -869,13 +867,13 @@ int start_rootfs(struct ds_config *cfg) {
              * setup_veth_host_side() so the bridge IP is already assigned.
              * Skipped when --dns was given (custom servers bypass the proxy).
              */
-            ds_dns_proxy_start(cfg, netns_pid);
+            ds_dns_proxy_start(cfg, init_pid);
           }
         }
 
         /* Send handshake to init */
         struct ds_net_handshake hs;
-        ds_net_derive_handshake(netns_pid, cfg, &hs);
+        ds_net_derive_handshake(init_pid, cfg, &hs);
         ds_log("[NET] Monitor: sending DONE: peer=%s ip=%s", hs.peer_name,
                hs.ip_str);
         if (write(cfg->net_done_pipe[1], &hs, sizeof(hs)) !=
@@ -916,8 +914,20 @@ int start_rootfs(struct ds_config *cfg) {
     }
 
     int status;
-    while (waitpid(mid_pid, &status, 0) < 0 && errno == EINTR)
-      ;
+    while (1) {
+      pid_t r = waitpid(mid_pid, &status, WNOHANG);
+      if (r == mid_pid)
+        break;
+      if (r < 0 && errno != EINTR)
+        break;
+
+      /* Periodic tasks for monitor process */
+      if (cfg->virtualization && cfg->container_pid > 0) {
+        ds_virtualize_update(cfg);
+      }
+
+      usleep(500000); /* 500ms update interval */
+    }
 
     /* Log what monitor saw */
     if (WIFEXITED(status)) {

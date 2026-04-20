@@ -249,6 +249,8 @@ int ds_config_load(const char *config_path, struct ds_config *cfg) {
       cfg->force_cgroupv1 = parse_bool(val);
     } else if (strcmp(key, "block_nested_ns") == 0) {
       cfg->block_nested_ns = parse_bool(val);
+    } else if (strcmp(key, "virtualization") == 0) {
+      cfg->virtualization = parse_bool(val);
     } else if (strcmp(key, "privileged") == 0) {
       parse_privileged(val, cfg);
     } else if (strcmp(key, "bind_mounts") == 0) {
@@ -574,6 +576,7 @@ int ds_config_save(const char *config_path, struct ds_config *cfg) {
   fprintf(f_out, "volatile_mode=%d\n", cfg->volatile_mode);
   fprintf(f_out, "force_cgroupv1=%d\n", cfg->force_cgroupv1);
   fprintf(f_out, "block_nested_ns=%d\n", cfg->block_nested_ns);
+  fprintf(f_out, "virtualization=%d\n", cfg->virtualization);
 
   if (cfg->privileged_mask > 0) {
     fprintf(f_out, "privileged=");
@@ -809,6 +812,7 @@ void apply_reset_config(struct ds_config *cfg, int cli_net_mode_set,
   cfg->unknown_head = save_head;
   cfg->unknown_tail = save_tail;
   cfg->block_nested_ns = save_block_nested_ns;
+  cfg->virtualization = 0;
 
   if (cli_net_mode_set)
     cfg->net_mode = cli_net_mode;
