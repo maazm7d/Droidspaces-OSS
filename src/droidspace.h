@@ -46,6 +46,7 @@
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
+#include <linux/seccomp.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -96,6 +97,61 @@
 /* Default DNS servers */
 #define DS_DNS_DEFAULT_1 "1.1.1.1"
 #define DS_DNS_DEFAULT_2 "8.8.8.8"
+
+/* Seccomp Bridge */
+#define DS_BRIDGE_PATH "/run/droidspaces/bridge"
+#define DS_BRIDGE_CONTAINER_PATH "/dev/ds-bridge"
+
+/* Seccomp compatibility for older toolchains (Kernel 5.0+) */
+#ifndef SECCOMP_RET_USER_NOTIF
+#define SECCOMP_RET_USER_NOTIF 0x7fc00000U
+#endif
+
+#ifndef SECCOMP_FILTER_FLAG_NEW_LISTENER
+#define SECCOMP_FILTER_FLAG_NEW_LISTENER (1UL << 3)
+#endif
+
+#ifndef SECCOMP_USER_NOTIF_FLAG_CONTINUE
+#define SECCOMP_USER_NOTIF_FLAG_CONTINUE (1UL << 0)
+#endif
+
+#ifndef SECCOMP_GET_NOTIF_SIZES
+#define SECCOMP_GET_NOTIF_SIZES 1
+struct ds_seccomp_notif_sizes {
+  uint16_t seccomp_notif;
+  uint16_t seccomp_notif_resp;
+  uint16_t seccomp_data;
+};
+#endif
+
+struct ds_seccomp_notif {
+  uint64_t id;
+  uint32_t pid;
+  uint32_t flags;
+  struct seccomp_data data;
+};
+
+struct ds_seccomp_notif_resp {
+  uint64_t id;
+  int64_t val;
+  int32_t error;
+  uint32_t flags;
+};
+
+#ifndef SECCOMP_IOCTL_NOTIF_RECV
+#define SECCOMP_IOCTL_NOTIF_RECV _IOWR('!', 0, struct ds_seccomp_notif)
+#endif
+#ifndef SECCOMP_IOCTL_NOTIF_SEND
+#define SECCOMP_IOCTL_NOTIF_SEND _IOWR('!', 1, struct ds_seccomp_notif_resp)
+#endif
+#ifndef SECCOMP_IOCTL_NOTIF_ID_VALID
+#define SECCOMP_IOCTL_NOTIF_ID_VALID _IOR('!', 2, uint64_t)
+#endif
+
+/* Droidspaces Bridge IOCTLs */
+#define DS_BRIDGE_IOCTL_MAGIC 0x44 /* 'D' */
+#define DS_BRIDGE_IOCTL_GET_VERSION _IOR(DS_BRIDGE_IOCTL_MAGIC, 0x01, uint32_t)
+#define DS_BRIDGE_IOCTL_PING _IO(DS_BRIDGE_IOCTL_MAGIC, 0x02)
 
 /* Common Paths & Patterns */
 #define DS_PROC_ROOT_FMT "/proc/%d/root"
@@ -339,6 +395,10 @@ struct ds_config {
   int port_forward_count;
   char nat_container_ip[INET_ADDRSTRLEN]; /* assigned container IP, for cleanup
                                            */
+
+  /* Seccomp Bridge */
+  int bridge_fd;        /* FD for seccomp notifications */
+  pthread_t bridge_tid; /* Thread ID for the bridge listener */
 
   /* Static NAT IP (--nat-ip, or auto-assigned on first boot and persisted).
    * Once set in container.config, this IP is reused on every subsequent boot

@@ -6,6 +6,7 @@
  */
 
 #include "droidspace.h"
+#include <linux/filter.h>
 
 /* ---------------------------------------------------------------------------
  * External Command Lock - CLI-only ownership
@@ -135,6 +136,115 @@ int is_external_lock_active(const char *name) {
 }
 
 /* ---------------------------------------------------------------------------
+ * Seccomp Bridge Listener
+ * ---------------------------------------------------------------------------*/
+
+/**
+ * is_bridge_fd() - Identity verification for intercepted FDs.
+ *
+ * Verifies if the FD being used in an intercepted ioctl() actually refers
+ * to our authentic bridge stub. Compares st_dev and st_ino to prevent
+ * spoofing across namespaces.
+ */
+static int is_bridge_fd(int bridge_fd, int pid, int target_fd) {
+  struct stat stub_st, proc_st;
+  char path[PATH_MAX];
+
+  if (fstat(bridge_fd, &stub_st) < 0)
+    return 0;
+
+  snprintf(path, sizeof(path), "/proc/%d/fd/%d", pid, target_fd);
+  if (stat(path, &proc_st) < 0)
+    return 0;
+
+  return (stub_st.st_dev == proc_st.st_dev && stub_st.st_ino == proc_st.st_ino);
+}
+
+/**
+ * ds_bridge_listener() - Dedicated thread to handle Seccomp notifications.
+ *
+ * Waits for notifications from the kernel when a container process performs
+ * an intercepted syscall (specifically ioctl on /dev/ds-bridge).
+ */
+static void *ds_bridge_listener(void *arg) {
+  struct ds_config *cfg = (struct ds_config *)arg;
+  char stub_path[PATH_MAX];
+  snprintf(stub_path, sizeof(stub_path), "/proc/%d/root/%s",
+           (int)cfg->container_pid, DS_BRIDGE_PATH);
+  int bridge_stub_fd = open(stub_path, O_RDONLY | O_CLOEXEC);
+
+  if (bridge_stub_fd < 0) {
+    /* Fallback: check host path directly */
+    bridge_stub_fd = open(DS_BRIDGE_PATH, O_RDONLY | O_CLOEXEC);
+  }
+
+  if (bridge_stub_fd < 0) {
+    write_monitor_debug_log(cfg->container_name, "[BRIDGE] Stub missing: %s",
+                            strerror(errno));
+    return NULL;
+  }
+
+  struct ds_seccomp_notif req;
+  struct ds_seccomp_notif_resp resp;
+
+  while (1) {
+    memset(&req, 0, sizeof(req));
+    if (ioctl(cfg->bridge_fd, SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+
+    memset(&resp, 0, sizeof(resp));
+    resp.id = req.id;
+    resp.error = 0;
+    resp.val = 0;
+
+    /* Intercepted Syscall: ioctl(fd, request, arg) */
+    if (req.data.nr == __NR_ioctl) {
+      int fd = (int)req.data.args[0];
+      unsigned long request = (unsigned long)req.data.args[1];
+
+      /* Identity Check: is this our bridge? */
+      if (is_bridge_fd(bridge_stub_fd, req.pid, fd)) {
+        /* Handle Bridge Requests */
+        switch (request) {
+        case DS_BRIDGE_IOCTL_GET_VERSION: /* Example: Get Host Version */
+          resp.val = 500;
+          break;
+        case DS_BRIDGE_IOCTL_PING: /* Example: Ping Host */
+          resp.val = 1337;
+          break;
+        default:
+          resp.error = -EINVAL;
+          break;
+        }
+      } else {
+        /* Not our bridge. Use the continue flag (Kernel 5.5+) to let
+         * the kernel handle it normally. For 5.0-5.4 kernels that don't
+         * support the flag, we must return -EACCES as a fallback. */
+#ifdef SECCOMP_USER_NOTIF_FLAG_CONTINUE
+        resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+#else
+        resp.error = -EACCES;
+#endif
+      }
+    } else {
+      resp.error = -ENOSYS;
+    }
+
+    if (ioctl(cfg->bridge_fd, SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
+      if (errno == ENOENT)
+        continue; /* Process died */
+      break;
+    }
+  }
+
+  close(bridge_stub_fd);
+  return NULL;
+}
+
+/* ---------------------------------------------------------------------------
  * Cleanup
  * ---------------------------------------------------------------------------*/
 
@@ -221,6 +331,17 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
   /* Network cleanup: remove host veth and iptables rules */
   if (cfg->net_mode == DS_NET_NAT) {
     ds_net_cleanup(cfg, pid > 0 ? pid : cfg->container_pid);
+  }
+
+  /* Seccomp Bridge cleanup */
+  if (cfg->bridge_tid) {
+    pthread_cancel(cfg->bridge_tid);
+    pthread_join(cfg->bridge_tid, NULL);
+    cfg->bridge_tid = 0;
+  }
+  if (cfg->bridge_fd >= 0) {
+    close(cfg->bridge_fd);
+    cfg->bridge_fd = -1;
   }
 
   /* Cgroup subtree cleanup: remove /sys/fs/cgroup/droidspaces/<name>/.
@@ -547,6 +668,9 @@ int start_rootfs(struct ds_config *cfg) {
   android_optimizations(1);
 
   /* 8. Fork Monitor Process */
+  cfg->bridge_fd = -1;
+  cfg->bridge_tid = 0;
+
   pid_t monitor_pid = fork();
   if (monitor_pid < 0) {
     close(sync_pipe[0]);
@@ -585,6 +709,10 @@ int start_rootfs(struct ds_config *cfg) {
      * each boot/reboot cycle forks an intermediate that creates a fresh
      * PID namespace. */
     int ns_flags = CLONE_NEWUTS | CLONE_NEWIPC;
+
+    /* Initialize Bridge FD */
+    cfg->bridge_fd = -1;
+    cfg->bridge_tid = 0;
 
     /* Create host-side cgroup directory and move self into it */
     if (ds_cgroup_host_create(cfg) < 0) {
@@ -759,8 +887,29 @@ int start_rootfs(struct ds_config *cfg) {
         }
       }
 
+      /* Send Bridge FD to monitor (Kernel 5.0+ ONLY) */
+      int k_maj = 0, k_min = 0;
+      get_kernel_version(&k_maj, &k_min);
+      if (k_maj >= 5) {
+        /* Capture the filter while applying it to get a listener FD.
+         * The monitor (parent) will use this FD to handle notifications. */
+        static struct sock_filter allow_all[] = {
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)};
+        static struct sock_fprog prog = {
+            .len = 1,
+            .filter = allow_all,
+        };
+
+        int bridge_fd = (int)syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                                     SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
+        if (bridge_fd >= 0) {
+          ds_send_fd(mid_sync_pipe[1], bridge_fd);
+          close(bridge_fd);
+        }
+      }
+
       /* Send init PID to monitor so it can target /proc/<pid>/ns/net */
-      if (cfg->net_mode != DS_NET_HOST && mid_sync_pipe[1] >= 0) {
+      if (mid_sync_pipe[1] >= 0) {
         if (write(mid_sync_pipe[1], &init_pid, sizeof(pid_t)) !=
             sizeof(pid_t)) {
           ds_warn(
@@ -815,23 +964,27 @@ int start_rootfs(struct ds_config *cfg) {
       sync_pipe[1] = -1;
     }
 
-    /* ── Monitor: NAT networking handshake ─────────────────────────────
+    /* ── Monitor: Bridge and NAT networking handshake ───────────────────
      *
      * Sequence (all non-blocking after pipes are ready):
-     *   1. Read init_pid from mid_sync_pipe[0]
-     *   2. Read "ready" byte from net_ready_pipe[0]  (init sent it)
-     *   3. Call setup_veth_host_side → creates bridge/veth/rules
-     *   4. Write ds_net_handshake to net_done_pipe[1] (init reads it)
-     *
-     * This handshake ensures the veth peer is moved into the container's
-     * netns while the init process is alive and waiting, avoiding the race
-     * where we try to open /proc/<pid>/ns/net before the process exists. */
-    if (cfg->net_mode != DS_NET_HOST && mid_sync_pipe[0] >= 0) {
+     *   1. Receive Bridge FD from mid_sync_pipe[0]
+     *   2. Read init_pid from mid_sync_pipe[0]
+     *   3. Read "ready" byte from net_ready_pipe[0]  (init sent it)
+     *   4. Call setup_veth_host_side → creates bridge/veth/rules
+     *   5. Write ds_net_handshake to net_done_pipe[1] (init reads it)
+     *   6. Start Bridge Listener thread
+     */
+    if (mid_sync_pipe[0] >= 0) {
       close(mid_sync_pipe[1]); /* monitor is reader */
+
+      /* 1. Receive Bridge FD */
+      cfg->bridge_fd = ds_recv_fd(mid_sync_pipe[0]);
+      if (cfg->bridge_fd >= 0) {
+        ds_log("[BRIDGE] Received Seccomp notification FD: %d", cfg->bridge_fd);
+      }
 
       pid_t netns_pid = -1;
       ssize_t nr = read(mid_sync_pipe[0], &netns_pid, sizeof(pid_t));
-      close(mid_sync_pipe[0]);
 
       if (nr != sizeof(pid_t) || netns_pid <= 0) {
         ds_warn("[NET] Monitor: failed to read init_pid from mid_sync_pipe "
@@ -883,6 +1036,20 @@ int start_rootfs(struct ds_config *cfg) {
           ds_warn("[NET] Monitor: failed to write handshake to init");
         close(cfg->net_done_pipe[1]);
       }
+
+      /* 6. Start Bridge Listener thread (if FD was received) */
+      if (cfg->bridge_fd >= 0) {
+        if (pthread_create(&cfg->bridge_tid, NULL, ds_bridge_listener, cfg) !=
+            0) {
+          ds_warn("[BRIDGE] Failed to start listener thread: %s",
+                  strerror(errno));
+          cfg->bridge_tid = 0;
+        } else {
+          ds_log("[BRIDGE] Listener thread started (TID %lu)", cfg->bridge_tid);
+        }
+      }
+
+      close(mid_sync_pipe[0]);
     }
     /* ─────────────────────────────────────────────────────────────────── */
 

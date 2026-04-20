@@ -114,6 +114,35 @@ int ds_seccomp_apply_minimal(int hw_access, int privileged_mask) {
                                                   0x10000000, 0, 1);
     filter[curr++] = (struct sock_filter)BPF_STMT(
         BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA));
+    filter[curr++] = (struct sock_filter)BPF_STMT(
+        BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
+  }
+
+  /* 9. Seccomp Bridge: Surgical Interception
+   * Only intercept ioctls with our specific bridge magic.
+   * This ensures zero performance hit for normal system ioctls.
+   * Only applied on Kernel 5.0+ where USER_NOTIF is supported. */
+  int k_major = 0, k_minor = 0;
+  get_kernel_version(&k_major, &k_minor);
+  if (k_major >= 5) {
+    /* If syscall is ioctl... */
+    filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                  __NR_ioctl, 0, 5);
+    /* ...load arg[1] (request) */
+    filter[curr++] = (struct sock_filter)BPF_STMT(
+        BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]));
+    /* ...check against bridge IOCTLs */
+    filter[curr++] = (struct sock_filter)BPF_JUMP(
+        BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)DS_BRIDGE_IOCTL_GET_VERSION, 0, 1);
+    filter[curr++] =
+        (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
+    filter[curr++] = (struct sock_filter)BPF_JUMP(
+        BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)DS_BRIDGE_IOCTL_PING, 0, 1);
+    filter[curr++] =
+        (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
+    /* ...not a bridge ioctl, reload nr for next filters */
+    filter[curr++] = (struct sock_filter)BPF_STMT(
+        BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
   }
 
   /* Allow everything else */

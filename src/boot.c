@@ -386,6 +386,15 @@ int internal_boot(struct ds_config *cfg) {
 
   /* 14. Write identity markers for PID discovery */
   mkdir("run/droidspaces", 0755);
+
+  /* Seccomp Bridge Stub */
+  write_file("run/droidspaces/bridge", "");
+  chmod("run/droidspaces/bridge", 0666);
+  if (mount("run/droidspaces/bridge", "dev/ds-bridge", NULL, MS_BIND, NULL) <
+      0) {
+    ds_warn("[BRIDGE] Failed to bind mount bridge stub: %s", strerror(errno));
+  }
+
   char marker[PATH_MAX];
   snprintf(marker, sizeof(marker), "run/droidspaces/%s", cfg->uuid);
   write_file(marker, ""); /* empty UUID marker */
