@@ -36,22 +36,19 @@ static void get_cgroup_v2_mem_stat(struct ds_config *cfg, long long *anon, long 
     char path[PATH_MAX * 2];
     char buf[4096];
 
-    /* Try common locations for memory.stat */
-    const char *bases[] = {
-        "/sys/fs/cgroup/droidspaces/%s/memory.stat",
-        "/sys/fs/cgroup/%s/memory.stat",
-        "/sys/fs/cgroup/memory/droidspaces/%s/memory.stat"
-    };
+    /* Try common locations for memory.stat - using explicit snprintf calls
+     * to avoid -Werror=format-nonliteral. */
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/droidspaces/%s/memory.stat", cfg->container_name);
+    if (access(path, R_OK) != 0)
+        snprintf(path, sizeof(path), "/sys/fs/cgroup/%s/memory.stat", cfg->container_name);
+    if (access(path, R_OK) != 0)
+        snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/droidspaces/%s/memory.stat", cfg->container_name);
 
-    for (size_t i = 0; i < ARRAY_SIZE(bases); i++) {
-        snprintf(path, sizeof(path), bases[i], cfg->container_name);
-        if (read_file(path, buf, sizeof(buf)) > 0) {
-            char *p;
-            if ((p = strstr(buf, "anon "))) sscanf(p + 5, "%lld", anon);
-            if ((p = strstr(buf, "file "))) sscanf(p + 5, "%lld", file);
-            if ((p = strstr(buf, "slab "))) sscanf(p + 5, "%lld", slab);
-            return;
-        }
+    if (read_file(path, buf, sizeof(buf)) > 0) {
+        char *p;
+        if ((p = strstr(buf, "anon "))) (void)sscanf(p + 5, "%lld", anon);
+        if ((p = strstr(buf, "file "))) (void)sscanf(p + 5, "%lld", file);
+        if ((p = strstr(buf, "slab "))) (void)sscanf(p + 5, "%lld", slab);
     }
 }
 
