@@ -46,6 +46,7 @@
 #include <sys/utsname.h>
 #include <sys/vfs.h>
 #include <sys/wait.h>
+#include <poll.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -354,7 +355,13 @@ struct ds_config {
   long long cpu_quota;    /* cpu.max quota in us */
   long long cpu_period;   /* cpu.max period in us */
   long long pids_limit;   /* pids.max */
+
+  int virtualization; /* --virtualization: enable resource virtualization */
+  struct timespec start_time; /* when the container was started */
+  unsigned long ns_inode;     /* PID namespace inode for identity verification */
 };
+
+#define OPT_VIRTUALIZATION 268
 
 /* ---------------------------------------------------------------------------
  * utils.c

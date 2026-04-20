@@ -75,6 +75,7 @@ void print_usage(void) {
       C_BOLD "Options (Security & Boot):" C_RESET "\n"
       "  -P, --selinux-permissive  Set host SELinux to permissive mode\n"
       "  -V, --volatile            Discard changes on exit (OverlayFS)\n"
+      "      --virtualization      Enable resource virtualization (meminfo, cpuinfo, etc)\n"
       "      --force-cgroupv1      Force legacy cgroup v1 hierarchy\n"
       "      --block-nested-namespaces\n"
       "                            Manual Deadlock Shield (no nested "
@@ -345,6 +346,7 @@ int main(int argc, char **argv) {
       {"memory", required_argument, 0, 265},
       {"cpus", required_argument, 0, 266},
       {"pids-limit", required_argument, 0, 267},
+      {"virtualization", no_argument, 0, OPT_VIRTUALIZATION},
       {"privileged", required_argument, 0, 264},
       {"nat-ip", required_argument, 0, 262},
       {"gpu", no_argument, 0, 263},
@@ -895,6 +897,10 @@ int main(int argc, char **argv) {
       cfg.pids_limit = pids;
       break;
     }
+
+    case OPT_VIRTUALIZATION:
+      cfg.virtualization = 1;
+      break;
 
     case 262: {
       /* --nat-ip: static container IP inside the NAT subnet.
