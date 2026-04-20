@@ -390,6 +390,10 @@ int internal_boot(struct ds_config *cfg) {
   /* Seccomp Bridge Stub */
   write_file("run/droidspaces/bridge", "");
   chmod("run/droidspaces/bridge", 0666);
+
+  /* Ensure destination exists in container dev (pre-pivot) */
+  write_file("dev/ds-bridge", "");
+
   if (mount("run/droidspaces/bridge", "dev/ds-bridge", NULL, MS_BIND, NULL) <
       0) {
     ds_warn("[BRIDGE] Failed to bind mount bridge stub: %s", strerror(errno));

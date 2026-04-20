@@ -497,6 +497,7 @@ void android_remount_data_suid(void);
 int android_setup_storage(const char *rootfs_path);
 int android_seccomp_setup(int is_systemd, int block_nested_ns);
 int ds_seccomp_apply_minimal(int hw_access, int privileged_mask);
+int ds_seccomp_apply_bridge(void);
 
 /* ---------------------------------------------------------------------------
  * mount.c

@@ -118,32 +118,6 @@ int ds_seccomp_apply_minimal(int hw_access, int privileged_mask) {
         BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
   }
 
-  /* 9. Seccomp Bridge: Surgical Interception
-   * Only intercept ioctls with our specific bridge magic.
-   * This ensures zero performance hit for normal system ioctls.
-   * Only applied on Kernel 5.0+ where USER_NOTIF is supported. */
-  int k_major = 0, k_minor = 0;
-  get_kernel_version(&k_major, &k_minor);
-  if (k_major >= 5) {
-    /* If syscall is ioctl... */
-    filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
-                                                  __NR_ioctl, 0, 5);
-    /* ...load arg[1] (request) */
-    filter[curr++] = (struct sock_filter)BPF_STMT(
-        BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]));
-    /* ...check against bridge IOCTLs */
-    filter[curr++] = (struct sock_filter)BPF_JUMP(
-        BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)DS_BRIDGE_IOCTL_GET_VERSION, 0, 1);
-    filter[curr++] =
-        (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
-    filter[curr++] = (struct sock_filter)BPF_JUMP(
-        BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)DS_BRIDGE_IOCTL_PING, 0, 1);
-    filter[curr++] =
-        (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
-    /* ...not a bridge ioctl, reload nr for next filters */
-    filter[curr++] = (struct sock_filter)BPF_STMT(
-        BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
-  }
 
   /* Allow everything else */
   filter[curr++] =
@@ -172,6 +146,66 @@ int ds_seccomp_apply_minimal(int hw_access, int privileged_mask) {
  * 2. Deadlock Shield (EPERM): Blocks namespace creation (unshare/clone).
  *    Applied ONLY if block_nested_ns is true (manual override).
  */
+/**
+ * ds_seccomp_apply_bridge() - Apply surgical bridge filter and get listener FD.
+ */
+int ds_seccomp_apply_bridge(void) {
+  int k_major = 0, k_minor = 0;
+  get_kernel_version(&k_major, &k_minor);
+  if (k_major < 5)
+    return -1;
+
+  struct sock_filter filter[16];
+  int curr = 0;
+
+  /* 1. Validate Architecture */
+  filter[curr++] = (struct sock_filter)BPF_STMT(
+      BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch));
+#if defined(__aarch64__)
+  filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                AUDIT_ARCH_AARCH64, 1, 0);
+#elif defined(__x86_64__)
+  filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                AUDIT_ARCH_X86_64, 1, 0);
+#elif defined(__arm__)
+  filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                AUDIT_ARCH_ARM, 1, 0);
+#elif defined(__i386__)
+  filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                AUDIT_ARCH_I386, 1, 0);
+#endif
+  filter[curr++] =
+      (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+
+  /* 2. Load syscall number */
+  filter[curr++] = (struct sock_filter)BPF_STMT(
+      BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr));
+
+  /* 3. Surgical ioctl interception */
+  filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
+                                                __NR_ioctl, 0, 3);
+  filter[curr++] = (struct sock_filter)BPF_STMT(
+      BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]));
+  filter[curr++] = (struct sock_filter)BPF_STMT(BPF_ALU | BPF_AND | BPF_K,
+                                                (0xFF << 8));
+  filter[curr++] = (struct sock_filter)BPF_JUMP(
+      BPF_JMP | BPF_JEQ | BPF_K, (DS_BRIDGE_IOCTL_MAGIC << 8), 0, 1);
+  filter[curr++] =
+      (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
+
+  /* Allow everything else */
+  filter[curr++] =
+      (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
+
+  struct sock_fprog prog = {
+      .len = (unsigned short)curr,
+      .filter = filter,
+  };
+
+  return (int)syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER,
+                      SECCOMP_FILTER_FLAG_NEW_LISTENER, &prog);
+}
+
 int android_seccomp_setup(int is_systemd, int block_nested_ns) {
   (void)is_systemd;
   int major = 0, minor = 0;
