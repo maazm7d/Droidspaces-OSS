@@ -183,7 +183,7 @@ int ds_seccomp_apply_bridge(void) {
 
   /* 3. Surgical ioctl interception */
   filter[curr++] = (struct sock_filter)BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K,
-                                                __NR_ioctl, 0, 3);
+                                                __NR_ioctl, 0, 4);
   filter[curr++] = (struct sock_filter)BPF_STMT(
       BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1]));
   filter[curr++] = (struct sock_filter)BPF_STMT(BPF_ALU | BPF_AND | BPF_K,
@@ -193,7 +193,7 @@ int ds_seccomp_apply_bridge(void) {
   filter[curr++] =
       (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_USER_NOTIF);
 
-  /* Allow everything else */
+  /* Allow everything else (Normal ioctls + all other syscalls) */
   filter[curr++] =
       (struct sock_filter)BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW);
 

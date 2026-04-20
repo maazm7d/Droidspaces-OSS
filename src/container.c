@@ -190,8 +190,7 @@ static void *ds_bridge_listener(void *arg) {
 
   while (1) {
     memset(&req, 0, sizeof(req));
-    if (ioctl(cfg->bridge_fd, (unsigned long)SECCOMP_IOCTL_NOTIF_RECV, &req) <
-        0) {
+    if (ioctl(cfg->bridge_fd, (int)SECCOMP_IOCTL_NOTIF_RECV, &req) < 0) {
       if (errno == EINTR)
         continue;
       break;
@@ -226,18 +225,19 @@ static void *ds_bridge_listener(void *arg) {
         /* Not our bridge. Use the continue flag (Kernel 5.5+) to let
          * the kernel handle it normally. For 5.0-5.4 kernels that don't
          * support the flag, we must return -EACCES as a fallback. */
-#ifdef SECCOMP_USER_NOTIF_FLAG_CONTINUE
-        resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
-#else
-        resp.error = -EACCES;
-#endif
+        int k_maj = 0, k_min = 0;
+        get_kernel_version(&k_maj, &k_min);
+        if (k_maj > 5 || (k_maj == 5 && k_min >= 5)) {
+          resp.flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+        } else {
+          resp.error = -EACCES;
+        }
       }
     } else {
       resp.error = -ENOSYS;
     }
 
-    if (ioctl(cfg->bridge_fd, (unsigned long)SECCOMP_IOCTL_NOTIF_SEND, &resp) <
-        0) {
+    if (ioctl(cfg->bridge_fd, (int)SECCOMP_IOCTL_NOTIF_SEND, &resp) < 0) {
       if (errno == ENOENT)
         continue; /* Process died */
       break;
@@ -338,14 +338,16 @@ static void cleanup_container_resources(struct ds_config *cfg, pid_t pid,
   }
 
   /* Seccomp Bridge cleanup */
+  if (cfg->bridge_fd >= 0) {
+    /* Closing the listener FD will unblock the thread's ioctl() loop
+     * with an error, allowing it to exit gracefully without pthread_cancel. */
+    int fd = cfg->bridge_fd;
+    cfg->bridge_fd = -1;
+    close(fd);
+  }
   if (cfg->bridge_tid) {
-    pthread_cancel(cfg->bridge_tid);
     pthread_join(cfg->bridge_tid, NULL);
     cfg->bridge_tid = 0;
-  }
-  if (cfg->bridge_fd >= 0) {
-    close(cfg->bridge_fd);
-    cfg->bridge_fd = -1;
   }
 
   /* Cgroup subtree cleanup: remove /sys/fs/cgroup/droidspaces/<name>/.
@@ -979,6 +981,8 @@ int start_rootfs(struct ds_config *cfg) {
 
       pid_t netns_pid = -1;
       ssize_t nr = read(mid_sync_pipe[0], &netns_pid, sizeof(pid_t));
+      if (nr == sizeof(pid_t))
+        cfg->container_pid = netns_pid;
 
       if (nr != sizeof(pid_t) || netns_pid <= 0) {
         ds_warn("[NET] Monitor: failed to read init_pid from mid_sync_pipe "
