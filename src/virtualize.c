@@ -81,6 +81,11 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
     }
     rewind(f);
 
+    /* Fallback to requested limit if cgroup enforcement is not readable */
+    if (mem_limit <= 0 && cfg->memory_limit > 0) {
+        mem_limit = cfg->memory_limit;
+    }
+
     double ratio = 1.0;
     if (mem_limit > 0 && host_total > 0) {
         ratio = (double)mem_limit / (host_total * 1024.0);
@@ -102,11 +107,11 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
             buf = newbuf;
         }
 
-        char key[128];
+        char key[256];
         long long val;
-        if (sscanf(line, "%127[^:]: %lld", key, &val) == 2) {
+        int has_kb = strstr(line, " kB") != NULL;
+        if (sscanf(line, "%255[^:]: %lld", key, &val) == 2) {
             if (mem_limit > 0) {
-                int handled = 1;
                 if (strcmp(key, "MemTotal") == 0) {
                     val = mem_limit / 1024;
                 } else if (strcmp(key, "MemFree") == 0) {
@@ -126,16 +131,18 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
                     val = cg_file / 1024;
                 } else if (strcmp(key, "Slab") == 0 && cg_slab >= 0) {
                     val = cg_slab / 1024;
-                } else {
+                } else if (has_kb) {
                     val = (long long)(val * ratio);
                 }
 
-                if (handled) {
-                    /* Restore fixed-width alignment for compatibility */
-                    strncat(key, ":", sizeof(key) - strlen(key) - 1);
-                    offset += snprintf(buf + offset, cap - offset, "%-16s%11lld kB\n", key, val);
-                    continue;
+                /* Restore fixed-width alignment for compatibility */
+                strncat(key, ":", sizeof(key) - strlen(key) - 1);
+                if (has_kb) {
+                    offset += snprintf(buf + offset, cap - offset, "%-16s %10lld kB\n", key, val);
+                } else {
+                    offset += snprintf(buf + offset, cap - offset, "%-16s %10lld\n", key, val);
                 }
+                continue;
             }
         }
         size_t len = strlen(line);
@@ -155,10 +162,12 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
  * Generate virtualized /proc/cpuinfo
  */
 int ds_virtualize_cpuinfo(struct ds_config *cfg, char **buf_out, size_t *size_out) {
-    int max_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int host_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int max_cpus = host_cpus;
     if (cfg->cpu_quota > 0 && cfg->cpu_period > 0) {
         max_cpus = (int)((cfg->cpu_quota + cfg->cpu_period - 1) / cfg->cpu_period);
         if (max_cpus < 1) max_cpus = 1;
+        if (max_cpus > host_cpus) max_cpus = host_cpus;
     }
 
     FILE *f = fopen("/proc/cpuinfo", "r");
@@ -199,10 +208,12 @@ int ds_virtualize_cpuinfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
  * Generate virtualized /proc/stat
  */
 int ds_virtualize_stat(struct ds_config *cfg, char **buf_out, size_t *size_out) {
-    int max_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int host_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int max_cpus = host_cpus;
     if (cfg->cpu_quota > 0 && cfg->cpu_period > 0) {
         max_cpus = (int)((cfg->cpu_quota + cfg->cpu_period - 1) / cfg->cpu_period);
         if (max_cpus < 1) max_cpus = 1;
+        if (max_cpus > host_cpus) max_cpus = host_cpus;
     }
 
     FILE *f = fopen("/proc/stat", "r");

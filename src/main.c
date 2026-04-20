@@ -189,30 +189,63 @@ static int auto_resolve_container_name(struct ds_config *cfg) {
   char first_name[256];
   int count = count_running_containers(first_name, sizeof(first_name));
 
-  /* If 0 containers found, try a scan once if we aren't already silent
-   * (prevents infinite scan loops) */
-  if (count == 0 && !ds_log_silent) {
-    ds_log_silent = 1;
-    scan_containers();
-    ds_log_silent = 0;
-    count = count_running_containers(first_name, sizeof(first_name));
-  }
-
-  /* If still not found after scan, fail */
-  if (count == 0) {
-    ds_error("No containers are currently running.");
-    return -1;
+  if (count == 1) {
+    safe_strncpy(cfg->container_name, first_name, sizeof(cfg->container_name));
+    return 0;
   }
 
   if (count > 1) {
-    ds_error("Multiple containers running. Please specify " C_BOLD
-             "--name" C_RESET ".");
+    ds_error("Multiple containers running. Please specify " C_BOLD "--name" C_RESET ".");
     show_containers();
     return -1;
   }
 
-  safe_strncpy(cfg->container_name, first_name, sizeof(cfg->container_name));
-  return 0;
+  /* If no containers are running, check the Containers/ directory for installed systems */
+  char containers_dir[PATH_MAX];
+  snprintf(containers_dir, sizeof(containers_dir), "%s/Containers", get_workspace_dir());
+  DIR *d = opendir(containers_dir);
+  int installed_count = 0;
+  char last_found[256] = {0};
+
+  if (d) {
+    struct dirent *ent;
+    while ((ent = readdir(d)) != NULL) {
+      if (ent->d_name[0] == '.') continue;
+      char conf_path[PATH_MAX];
+      snprintf(conf_path, sizeof(conf_path), "%s/%s/container.config", containers_dir, ent->d_name);
+      if (access(conf_path, F_OK) == 0) {
+        installed_count++;
+        safe_strncpy(last_found, ent->d_name, sizeof(last_found));
+      }
+    }
+    closedir(d);
+  }
+
+  if (installed_count == 1) {
+    safe_strncpy(cfg->container_name, last_found, sizeof(cfg->container_name));
+    return 0;
+  }
+
+  if (installed_count > 1) {
+    ds_error("Multiple containers installed. Please specify " C_BOLD "--name" C_RESET ".");
+    show_containers();
+    return -1;
+  }
+
+  /* If still not found, try a recovery scan once if we aren't already silent */
+  if (!ds_log_silent) {
+    ds_log_silent = 1;
+    scan_containers();
+    ds_log_silent = 0;
+    count = count_running_containers(first_name, sizeof(first_name));
+    if (count == 1) {
+      safe_strncpy(cfg->container_name, first_name, sizeof(cfg->container_name));
+      return 0;
+    }
+  }
+
+  ds_error("No containers found. Specify " C_BOLD "-r" C_RESET " or " C_BOLD "-i" C_RESET " to start a new one.");
+  return -1;
 }
 
 /* ---------------------------------------------------------------------------
