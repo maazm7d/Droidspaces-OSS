@@ -20,6 +20,19 @@ static int write_file_atomic_at(const char *path, const char *content) {
     return 0;
 }
 
+/* Helper to read cgroup v2 memory.stat */
+static void get_cgroup_v2_mem_stat(struct ds_config *cfg, long long *anon, long long *file, long long *slab) {
+    char path[PATH_MAX * 2];
+    char buf[4096];
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/droidspaces/%s/memory.stat", cfg->container_name);
+    if (read_file(path, buf, sizeof(buf)) > 0) {
+        char *p;
+        if ((p = strstr(buf, "anon "))) sscanf(p + 5, "%lld", anon);
+        if ((p = strstr(buf, "file "))) sscanf(p + 5, "%lld", file);
+        if ((p = strstr(buf, "slab "))) sscanf(p + 5, "%lld", slab);
+    }
+}
+
 /*
  * Generate virtualized /proc/meminfo
  */
@@ -28,19 +41,43 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
     ds_cgroup_get_limits(cfg, &mem_limit, NULL, NULL, NULL);
     ds_cgroup_get_usage(cfg, &mem_usage, NULL, NULL);
 
+    /* Try to get memory.high as effective limit if memory.max is unlimited */
+    if (mem_limit <= 0) {
+        char path[PATH_MAX];
+        char buf[64];
+        snprintf(path, sizeof(path), "/sys/fs/cgroup/droidspaces/%s/memory.high", cfg->container_name);
+        if (read_file(path, buf, sizeof(buf)) > 0) {
+            if (strncmp(buf, "max", 3) != 0) mem_limit = atoll(buf);
+        }
+    }
+
     if (mem_usage < 0) mem_usage = 0;
 
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return -1;
 
+    /* Get host MemTotal first to calculate scaling ratio */
+    long long host_total = 0;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        if (sscanf(line, "MemTotal: %lld", &host_total) == 1) break;
+    }
+    rewind(f);
+
+    double ratio = 1.0;
+    if (mem_limit > 0 && host_total > 0) {
+        ratio = (double)mem_limit / (host_total * 1024.0);
+    }
+
+    /* Try to get accurate cgroup stats */
+    long long cg_anon = -1, cg_file = -1, cg_slab = -1;
+    get_cgroup_v2_mem_stat(cfg, &cg_anon, &cg_file, &cg_slab);
+
     size_t cap = 16384;
     char *buf = malloc(cap);
     if (!buf) { fclose(f); return -1; }
 
-    char line[1024];
     size_t offset = 0;
-    long long cached = 0, buffers = 0;
-
     while (fgets(line, sizeof(line), f)) {
         if (offset + 1024 >= cap) {
             cap *= 2;
@@ -49,38 +86,46 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
             buf = newbuf;
         }
 
-        if (mem_limit > 0) {
-            if (strncmp(line, "MemTotal:", 9) == 0) {
-                offset += snprintf(buf + offset, cap - offset, "MemTotal:       %11lld kB\n", mem_limit / 1024);
-                continue;
-            }
-            if (strncmp(line, "MemFree:", 8) == 0) {
-                long long fval = (mem_limit - mem_usage) / 1024;
-                if (fval < 0) fval = 0;
-                offset += snprintf(buf + offset, cap - offset, "MemFree:        %11lld kB\n", fval);
-                continue;
-            }
-            if (strncmp(line, "Cached:", 7) == 0) {
-                (void)sscanf(line, "Cached: %lld", &cached);
-            }
-            if (strncmp(line, "Buffers:", 8) == 0) {
-                (void)sscanf(line, "Buffers: %lld", &buffers);
-            }
-            if (strncmp(line, "MemAvailable:", 13) == 0) {
-                long long fval = (mem_limit - mem_usage) / 1024;
-                long long avail = fval + (long long)((cached + buffers) * 0.8);
-                if (avail > mem_limit / 1024) avail = mem_limit / 1024;
-                if (avail < 0) avail = 0;
-                offset += snprintf(buf + offset, cap - offset, "MemAvailable:   %11lld kB\n", avail);
-                continue;
-            }
-            /* Virtualize Swap as 0 for now as most containers don't have host swap access or shouldn't see it */
-            if (strncmp(line, "SwapTotal:", 10) == 0) {
-                offset += snprintf(buf + offset, cap - offset, "SwapTotal:             0 kB\n");
-                continue;
-            }
-            if (strncmp(line, "SwapFree:", 9) == 0) {
-                offset += snprintf(buf + offset, cap - offset, "SwapFree:              0 kB\n");
+        char key[64];
+        long long val;
+        if (sscanf(line, "%63[^:]: %lld", key, &val) == 2) {
+            if (mem_limit > 0) {
+                if (strcmp(key, "MemTotal") == 0) {
+                    val = mem_limit / 1024;
+                } else if (strcmp(key, "MemFree") == 0) {
+                    val = (mem_limit - mem_usage) / 1024;
+                    if (val < 0) val = 0;
+                } else if (strcmp(key, "MemAvailable") == 0) {
+                    /* Better approximation: Free + Cache + Buffers (scaled) */
+                    long long free_kb = (mem_limit - mem_usage) / 1024;
+                    if (free_kb < 0) free_kb = 0;
+                    /* We don't have per-container Cache/Buffers easily for v1,
+                     * so we use scaled values from host for components. */
+                    val = free_kb; // Fallback, will be adjusted if we have more info
+                } else if (strstr(key, "Swap")) {
+                    val = 0;
+                } else if (strcmp(key, "AnonPages") == 0 && cg_anon >= 0) {
+                    val = cg_anon / 1024;
+                } else if ((strcmp(key, "Cached") == 0 || strcmp(key, "Mapped") == 0) && cg_file >= 0) {
+                    val = cg_file / 1024;
+                } else if (strcmp(key, "Slab") == 0 && cg_slab >= 0) {
+                    val = cg_slab / 1024;
+                } else {
+                    /* Scale other components */
+                    val = (long long)(val * ratio);
+                }
+
+                /* Final MemAvailable adjustment if we just calculated components */
+                if (strcmp(key, "MemAvailable") == 0) {
+                    // For simplicity in this refined model, we treat MemAvailable same as MemFree
+                    // unless we want to sum up scaled components.
+                    // Let's use a slightly better one if we have cg_file.
+                    if (cg_file >= 0) val += (cg_file / 1024);
+                    else val += (long long)(val * 0.5); // heuristic if ratio based
+                    if (val > mem_limit / 1024) val = mem_limit / 1024;
+                }
+
+                offset += snprintf(buf + offset, cap - offset, "%-16s %11lld kB\n", key, val);
                 continue;
             }
         }
@@ -233,8 +278,42 @@ int ds_virtualize_uptime(struct ds_config *cfg, char **buf_out, size_t *size_out
     return 0;
 }
 
+/*
+ * Generate virtualized /proc/loadavg
+ */
+int ds_virtualize_loadavg(struct ds_config *cfg, char **buf_out, size_t *size_out) {
+    int host_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int container_cpus = host_cpus;
+    if (cfg->cpu_quota > 0 && cfg->cpu_period > 0) {
+        container_cpus = (int)((cfg->cpu_quota + cfg->cpu_period - 1) / cfg->cpu_period);
+        if (container_cpus < 1) container_cpus = 1;
+    }
+
+    FILE *f = fopen("/proc/loadavg", "r");
+    if (!f) return -1;
+
+    double l1, l5, l15;
+    int runnable, total, last_pid;
+    if (fscanf(f, "%lf %lf %lf %d/%d %d", &l1, &l5, &l15, &runnable, &total, &last_pid) != 6) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    double ratio = (double)container_cpus / host_cpus;
+    char *buf = malloc(256);
+    if (!buf) return -1;
+
+    *size_out = snprintf(buf, 256, "%.2f %.2f %.2f %d/%d %d\n",
+                         l1 * ratio, l5 * ratio, l15 * ratio,
+                         (int)(runnable * ratio) > 0 ? (int)(runnable * ratio) : (runnable > 0 ? 1 : 0),
+                         (int)(total * ratio) > 0 ? (int)(total * ratio) : 1,
+                         last_pid);
+    *buf_out = buf;
+    return 0;
+}
+
 int ds_virtualize_init(struct ds_config *cfg) {
-    /* Use absolute path for vproc in container rootfs */
     char vproc_path[PATH_MAX * 2] = "/run/droidspaces/vproc";
 
     if (mkdir_p(vproc_path, 0755) < 0) return -1;
@@ -242,12 +321,12 @@ int ds_virtualize_init(struct ds_config *cfg) {
         return -1;
     }
 
-    const char *files[] = {"meminfo", "cpuinfo", "stat", "uptime"};
+    const char *files[] = {"meminfo", "cpuinfo", "stat", "uptime", "loadavg"};
     int (*funcs[])(struct ds_config *, char **, size_t *) = {
-        ds_virtualize_meminfo, ds_virtualize_cpuinfo, ds_virtualize_stat, ds_virtualize_uptime
+        ds_virtualize_meminfo, ds_virtualize_cpuinfo, ds_virtualize_stat, ds_virtualize_uptime, ds_virtualize_loadavg
     };
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         char *vbuf = NULL;
         size_t vsz = 0;
         if (funcs[i](cfg, &vbuf, &vsz) == 0) {
@@ -279,15 +358,14 @@ void ds_virtualize_update(struct ds_config *cfg) {
     size_t vsz = 0;
     char path[PATH_MAX];
 
-    const char *files[] = {"meminfo", "stat", "uptime"};
+    const char *files[] = {"meminfo", "stat", "uptime", "loadavg"};
     int (*funcs[])(struct ds_config *, char **, size_t *) = {
-        ds_virtualize_meminfo, ds_virtualize_stat, ds_virtualize_uptime
+        ds_virtualize_meminfo, ds_virtualize_stat, ds_virtualize_uptime, ds_virtualize_loadavg
     };
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         if (funcs[i](cfg, &vbuf, &vsz) == 0) {
             snprintf(path, sizeof(path), "/proc/%d/root/run/droidspaces/vproc/%s", cfg->container_pid, files[i]);
-            /* Check if still valid container and path exists to avoid PID recycling race */
             struct stat st;
             if (stat(path, &st) == 0) {
                 write_file_atomic_at(path, vbuf);

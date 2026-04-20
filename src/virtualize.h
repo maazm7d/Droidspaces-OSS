@@ -22,6 +22,9 @@ int ds_virtualize_stat(struct ds_config *cfg, char **buf_out, size_t *size_out);
 /* Generate virtualized /proc/uptime content */
 int ds_virtualize_uptime(struct ds_config *cfg, char **buf_out, size_t *size_out);
 
+/* Generate virtualized /proc/loadavg content */
+int ds_virtualize_loadavg(struct ds_config *cfg, char **buf_out, size_t *size_out);
+
 /* Initialize virtual proc directory in container rootfs (pre-pivot) */
 int ds_virtualize_init(struct ds_config *cfg);
 

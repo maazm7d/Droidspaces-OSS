@@ -934,12 +934,12 @@ int start_rootfs(struct ds_config *cfg) {
         ds_virtualize_update(cfg);
       }
 
-      /* Wait for next update or a signal */
+      /* Wait for next update or a signal (200ms for higher granularity) */
       if (sfd >= 0) {
         struct pollfd pfd = {.fd = sfd, .events = POLLIN};
-        (void)poll(&pfd, 1, 1000);
+        (void)poll(&pfd, 1, 200);
       } else {
-        usleep(1000000);
+        usleep(200000);
       }
     }
 
