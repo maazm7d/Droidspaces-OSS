@@ -464,7 +464,14 @@ int internal_boot(struct ds_config *cfg) {
 
   /* 18b. Resource Virtualization (meminfo, cpuinfo, etc) */
   if (cfg->virtualization) {
-    ds_virtualize_init(cfg);
+    /* Verify /proc is mounted inside container before init */
+    if (is_mountpoint("/proc")) {
+      if (ds_virtualize_init(cfg) < 0) {
+        ds_warn("Resource virtualization initialization failed.");
+      }
+    } else {
+      ds_warn("Resource virtualization skipped: /proc is not mounted.");
+    }
   }
 
   /* 19. Configure rootfs networking (hostname, resolv.conf, etc) */

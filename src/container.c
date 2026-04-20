@@ -843,6 +843,11 @@ int start_rootfs(struct ds_config *cfg) {
       } else {
         cfg->container_pid = init_pid;
 
+        /* Record PID namespace inode for future identity verification in virtualization updates */
+        if (cfg->virtualization) {
+          cfg->ns_inode = ds_get_pid_ns_inode(init_pid);
+        }
+
         if (cfg->net_mode != DS_NET_HOST) {
           ds_log("[NET] Monitor: received init_pid=%d, waiting for READY...",
                  (int)init_pid);
@@ -934,12 +939,12 @@ int start_rootfs(struct ds_config *cfg) {
         ds_virtualize_update(cfg);
       }
 
-      /* Wait for next update or a signal (200ms for higher granularity) */
+      /* Wait for next update or a signal (500ms for responsiveness) */
       if (sfd >= 0) {
         struct pollfd pfd = {.fd = sfd, .events = POLLIN};
-        (void)poll(&pfd, 1, 200);
+        (void)poll(&pfd, 1, 500);
       } else {
-        usleep(200000);
+        usleep(500000);
       }
     }
 

@@ -358,6 +358,7 @@ struct ds_config {
 
   int virtualization; /* --virtualization: enable resource virtualization */
   struct timespec start_time; /* when the container was started */
+  unsigned long ns_inode;     /* PID namespace inode for identity verification */
 };
 
 #define OPT_VIRTUALIZATION 268

@@ -33,6 +33,15 @@ static void get_cgroup_v2_mem_stat(struct ds_config *cfg, long long *anon, long 
     }
 }
 
+/* Get PID namespace inode for a given PID */
+unsigned long ds_get_pid_ns_inode(pid_t pid) {
+    char path[64];
+    struct stat st;
+    snprintf(path, sizeof(path), "/proc/%d/ns/pid", pid);
+    if (stat(path, &st) == 0) return (unsigned long)st.st_ino;
+    return 0;
+}
+
 /*
  * Generate virtualized /proc/meminfo
  */
@@ -96,12 +105,11 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
                     val = (mem_limit - mem_usage) / 1024;
                     if (val < 0) val = 0;
                 } else if (strcmp(key, "MemAvailable") == 0) {
-                    /* Better approximation: Free + Cache + Buffers (scaled) */
                     long long free_kb = (mem_limit - mem_usage) / 1024;
                     if (free_kb < 0) free_kb = 0;
-                    /* We don't have per-container Cache/Buffers easily for v1,
-                     * so we use scaled values from host for components. */
-                    val = free_kb; // Fallback, will be adjusted if we have more info
+                    if (cg_file >= 0) val = free_kb + (cg_file / 1024);
+                    else val = free_kb + (long long)(val * ratio * 0.8);
+                    if (val > mem_limit / 1024) val = mem_limit / 1024;
                 } else if (strstr(key, "Swap")) {
                     val = 0;
                 } else if (strcmp(key, "AnonPages") == 0 && cg_anon >= 0) {
@@ -111,18 +119,8 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
                 } else if (strcmp(key, "Slab") == 0 && cg_slab >= 0) {
                     val = cg_slab / 1024;
                 } else {
-                    /* Scale other components */
+                    /* Scale other components to maintain rough consistency */
                     val = (long long)(val * ratio);
-                }
-
-                /* Final MemAvailable adjustment if we just calculated components */
-                if (strcmp(key, "MemAvailable") == 0) {
-                    // For simplicity in this refined model, we treat MemAvailable same as MemFree
-                    // unless we want to sum up scaled components.
-                    // Let's use a slightly better one if we have cg_file.
-                    if (cg_file >= 0) val += (cg_file / 1024);
-                    else val += (long long)(val * 0.5); // heuristic if ratio based
-                    if (val > mem_limit / 1024) val = mem_limit / 1024;
                 }
 
                 offset += snprintf(buf + offset, cap - offset, "%-16s %11lld kB\n", key, val);
@@ -316,8 +314,12 @@ int ds_virtualize_loadavg(struct ds_config *cfg, char **buf_out, size_t *size_ou
 int ds_virtualize_init(struct ds_config *cfg) {
     char vproc_path[PATH_MAX * 2] = "/run/droidspaces/vproc";
 
-    if (mkdir_p(vproc_path, 0755) < 0) return -1;
+    if (mkdir_p(vproc_path, 0755) < 0) {
+        ds_warn("Failed to create vproc directory: %s", strerror(errno));
+        return -1;
+    }
     if (domount("none", vproc_path, "tmpfs", MS_NOSUID | MS_NODEV, "mode=755,size=1M") < 0) {
+        ds_warn("Failed to mount vproc tmpfs: %s", strerror(errno));
         return -1;
     }
 
@@ -334,19 +336,17 @@ int ds_virtualize_init(struct ds_config *cfg) {
             snprintf(path, sizeof(path), "%s/%s", vproc_path, files[i]);
             if (write_file(path, vbuf) < 0) {
                 free(vbuf);
-                return -1;
+                continue;
             }
             free(vbuf);
 
             char target[PATH_MAX];
             snprintf(target, sizeof(target), "/proc/%s", files[i]);
             if (bind_mount(path, target) < 0) {
-                ds_warn("Failed to bind mount virtual %s over %s", path, target);
-                return -1;
+                ds_warn("Failed to bind mount virtual %s over %s (continuing)", path, target);
             }
         } else {
-            ds_warn("Failed to generate virtual content for %s", files[i]);
-            return -1;
+            ds_warn("Failed to generate virtual content for %s (continuing)", files[i]);
         }
     }
 
@@ -354,9 +354,17 @@ int ds_virtualize_init(struct ds_config *cfg) {
 }
 
 void ds_virtualize_update(struct ds_config *cfg) {
+    /* ASSUMPTION: Monitor is in the HOST mount namespace.
+     * If this changes, path resolution via /proc/<pid>/root will fail. */
+
     char *vbuf = NULL;
     size_t vsz = 0;
     char path[PATH_MAX];
+
+    /* Verify container identity before update to avoid PID recycling race */
+    if (ds_get_pid_ns_inode(cfg->container_pid) != cfg->ns_inode) {
+        return;
+    }
 
     const char *files[] = {"meminfo", "stat", "uptime", "loadavg"};
     int (*funcs[])(struct ds_config *, char **, size_t *) = {

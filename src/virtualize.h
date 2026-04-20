@@ -31,4 +31,7 @@ int ds_virtualize_init(struct ds_config *cfg);
 /* Update dynamic virtual files from monitor process */
 void ds_virtualize_update(struct ds_config *cfg);
 
+/* Get PID namespace inode for a given PID */
+unsigned long ds_get_pid_ns_inode(pid_t pid);
+
 #endif /* DS_VIRTUALIZE_H */
