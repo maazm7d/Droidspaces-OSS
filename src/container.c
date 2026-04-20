@@ -601,6 +601,15 @@ int start_rootfs(struct ds_config *cfg) {
       }
     }
 
+    /* Signal handling for monitor process */
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
+    sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGINT);
+    sigprocmask(SIG_BLOCK, &mask, NULL);
+    int sfd = signalfd(-1, &mask, SFD_CLOEXEC);
+
     /* Adaptive Cgroup Namespace (introduced in Linux 4.6).
      *
      * CGROUP SELECTION: Only enable cgroupns when V2 is active.
@@ -772,8 +781,7 @@ int start_rootfs(struct ds_config *cfg) {
               "Intermediate: failed to write init_pid to mid_sync_pipe");
         }
         close(mid_sync_pipe[1]);
-        close(mid_sync_pipe[0]);
-        mid_sync_pipe[0] = mid_sync_pipe[1] = -1;
+        mid_sync_pipe[1] = -1;
       }
 
       /* Send init PID to parent via sync pipe (first boot only) */
@@ -926,7 +934,13 @@ int start_rootfs(struct ds_config *cfg) {
         ds_virtualize_update(cfg);
       }
 
-      usleep(500000); /* 500ms update interval */
+      /* Wait for next update or a signal */
+      if (sfd >= 0) {
+        struct pollfd pfd = {.fd = sfd, .events = POLLIN};
+        (void)poll(&pfd, 1, 1000);
+      } else {
+        usleep(1000000);
+      }
     }
 
     /* Log what monitor saw */
@@ -1014,6 +1028,7 @@ int start_rootfs(struct ds_config *cfg) {
       }
 
       cfg->reboot_cycle = 1;
+      clock_gettime(CLOCK_MONOTONIC, &cfg->start_time);
       if (cfg->foreground)
         ds_log_silent = 1;
 
@@ -1083,6 +1098,9 @@ int start_rootfs(struct ds_config *cfg) {
 
   ds_log("Container started with PID %d (Monitor: %d)", cfg->container_pid,
          monitor_pid);
+
+  /* Record start time for uptime virtualization */
+  clock_gettime(CLOCK_MONOTONIC, &cfg->start_time);
 
   /* 9. Android: Remount /data with suid for directory-based containers.
    * This is required for sudo/su to work if the rootfs is on /data.

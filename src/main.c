@@ -346,7 +346,7 @@ int main(int argc, char **argv) {
       {"memory", required_argument, 0, 265},
       {"cpus", required_argument, 0, 266},
       {"pids-limit", required_argument, 0, 267},
-      {"virtualization", no_argument, 0, 268},
+      {"virtualization", no_argument, 0, OPT_VIRTUALIZATION},
       {"privileged", required_argument, 0, 264},
       {"nat-ip", required_argument, 0, 262},
       {"gpu", no_argument, 0, 263},
@@ -898,7 +898,7 @@ int main(int argc, char **argv) {
       break;
     }
 
-    case 268:
+    case OPT_VIRTUALIZATION:
       cfg.virtualization = 1;
       break;
 
