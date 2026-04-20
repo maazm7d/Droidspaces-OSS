@@ -547,6 +547,9 @@ int start_rootfs(struct ds_config *cfg) {
   fix_networking_host(cfg);
   android_optimizations(1);
 
+  /* Record start time before fork so all processes have consistent base */
+  clock_gettime(CLOCK_MONOTONIC, &cfg->start_time);
+
   /* 8. Fork Monitor Process */
   pid_t monitor_pid = fork();
   if (monitor_pid < 0) {
@@ -782,6 +785,8 @@ int start_rootfs(struct ds_config *cfg) {
         }
         close(mid_sync_pipe[1]);
         mid_sync_pipe[1] = -1;
+        close(mid_sync_pipe[0]);
+        mid_sync_pipe[0] = -1;
       }
 
       /* Send init PID to parent via sync pipe (first boot only) */
@@ -942,7 +947,11 @@ int start_rootfs(struct ds_config *cfg) {
       /* Wait for next update or a signal (500ms for responsiveness) */
       if (sfd >= 0) {
         struct pollfd pfd = {.fd = sfd, .events = POLLIN};
-        (void)poll(&pfd, 1, 500);
+        if (poll(&pfd, 1, 500) > 0) {
+          /* Signal received, drain signalfd to prevent busy-wait */
+          struct signalfd_siginfo fdsi;
+          (void)read(sfd, &fdsi, sizeof(fdsi));
+        }
       } else {
         usleep(500000);
       }
@@ -1104,8 +1113,6 @@ int start_rootfs(struct ds_config *cfg) {
   ds_log("Container started with PID %d (Monitor: %d)", cfg->container_pid,
          monitor_pid);
 
-  /* Record start time for uptime virtualization */
-  clock_gettime(CLOCK_MONOTONIC, &cfg->start_time);
 
   /* 9. Android: Remount /data with suid for directory-based containers.
    * This is required for sudo/su to work if the rootfs is on /data.

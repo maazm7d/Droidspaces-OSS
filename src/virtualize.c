@@ -8,15 +8,26 @@
 #include "virtualize.h"
 #include <time.h>
 
-/* Atomic write using rename within the same directory */
-static int write_file_atomic_at(const char *path, const char *content) {
-    char temp[PATH_MAX * 2];
-    snprintf(temp, sizeof(temp), "%s.tmp", path);
-    if (write_file(temp, content) < 0) return -1;
-    if (rename(temp, path) < 0) {
-        unlink(temp);
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+#endif
+
+/* In-place overwrite for bind-mounted files (rename breaks bind mounts) */
+static int write_file_inplace(const char *path, const char *content) {
+    int fd = open(path, O_WRONLY | O_CLOEXEC);
+    if (fd < 0) return -1;
+
+    size_t len = strlen(content);
+    if (write_all(fd, content, len) != (ssize_t)len) {
+        close(fd);
         return -1;
     }
+
+    if (ftruncate(fd, (off_t)len) < 0) {
+        /* Ignore error or handle */
+    }
+
+    close(fd);
     return 0;
 }
 
@@ -24,12 +35,23 @@ static int write_file_atomic_at(const char *path, const char *content) {
 static void get_cgroup_v2_mem_stat(struct ds_config *cfg, long long *anon, long long *file, long long *slab) {
     char path[PATH_MAX * 2];
     char buf[4096];
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/droidspaces/%s/memory.stat", cfg->container_name);
-    if (read_file(path, buf, sizeof(buf)) > 0) {
-        char *p;
-        if ((p = strstr(buf, "anon "))) sscanf(p + 5, "%lld", anon);
-        if ((p = strstr(buf, "file "))) sscanf(p + 5, "%lld", file);
-        if ((p = strstr(buf, "slab "))) sscanf(p + 5, "%lld", slab);
+
+    /* Try common locations for memory.stat */
+    const char *bases[] = {
+        "/sys/fs/cgroup/droidspaces/%s/memory.stat",
+        "/sys/fs/cgroup/%s/memory.stat",
+        "/sys/fs/cgroup/memory/droidspaces/%s/memory.stat"
+    };
+
+    for (size_t i = 0; i < ARRAY_SIZE(bases); i++) {
+        snprintf(path, sizeof(path), bases[i], cfg->container_name);
+        if (read_file(path, buf, sizeof(buf)) > 0) {
+            char *p;
+            if ((p = strstr(buf, "anon "))) sscanf(p + 5, "%lld", anon);
+            if ((p = strstr(buf, "file "))) sscanf(p + 5, "%lld", file);
+            if ((p = strstr(buf, "slab "))) sscanf(p + 5, "%lld", slab);
+            return;
+        }
     }
 }
 
@@ -50,22 +72,11 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
     ds_cgroup_get_limits(cfg, &mem_limit, NULL, NULL, NULL);
     ds_cgroup_get_usage(cfg, &mem_usage, NULL, NULL);
 
-    /* Try to get memory.high as effective limit if memory.max is unlimited */
-    if (mem_limit <= 0) {
-        char path[PATH_MAX];
-        char buf[64];
-        snprintf(path, sizeof(path), "/sys/fs/cgroup/droidspaces/%s/memory.high", cfg->container_name);
-        if (read_file(path, buf, sizeof(buf)) > 0) {
-            if (strncmp(buf, "max", 3) != 0) mem_limit = atoll(buf);
-        }
-    }
-
     if (mem_usage < 0) mem_usage = 0;
 
     FILE *f = fopen("/proc/meminfo", "r");
     if (!f) return -1;
 
-    /* Get host MemTotal first to calculate scaling ratio */
     long long host_total = 0;
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
@@ -78,7 +89,6 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
         ratio = (double)mem_limit / (host_total * 1024.0);
     }
 
-    /* Try to get accurate cgroup stats */
     long long cg_anon = -1, cg_file = -1, cg_slab = -1;
     get_cgroup_v2_mem_stat(cfg, &cg_anon, &cg_file, &cg_slab);
 
@@ -95,10 +105,11 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
             buf = newbuf;
         }
 
-        char key[64];
+        char key[128];
         long long val;
-        if (sscanf(line, "%63[^:]: %lld", key, &val) == 2) {
+        if (sscanf(line, "%127[^:]: %lld", key, &val) == 2) {
             if (mem_limit > 0) {
+                int handled = 1;
                 if (strcmp(key, "MemTotal") == 0) {
                     val = mem_limit / 1024;
                 } else if (strcmp(key, "MemFree") == 0) {
@@ -110,7 +121,7 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
                     if (cg_file >= 0) val = free_kb + (cg_file / 1024);
                     else val = free_kb + (long long)(val * ratio * 0.8);
                     if (val > mem_limit / 1024) val = mem_limit / 1024;
-                } else if (strstr(key, "Swap")) {
+                } else if (strcmp(key, "SwapTotal") == 0 || strcmp(key, "SwapFree") == 0) {
                     val = 0;
                 } else if (strcmp(key, "AnonPages") == 0 && cg_anon >= 0) {
                     val = cg_anon / 1024;
@@ -119,12 +130,15 @@ int ds_virtualize_meminfo(struct ds_config *cfg, char **buf_out, size_t *size_ou
                 } else if (strcmp(key, "Slab") == 0 && cg_slab >= 0) {
                     val = cg_slab / 1024;
                 } else {
-                    /* Scale other components to maintain rough consistency */
                     val = (long long)(val * ratio);
                 }
 
-                offset += snprintf(buf + offset, cap - offset, "%-16s %11lld kB\n", key, val);
-                continue;
+                if (handled) {
+                    /* Restore fixed-width alignment for compatibility */
+                    strncat(key, ":", sizeof(key) - strlen(key) - 1);
+                    offset += snprintf(buf + offset, cap - offset, "%-16s%11lld kB\n", key, val);
+                    continue;
+                }
             }
         }
         size_t len = strlen(line);
@@ -207,7 +221,6 @@ int ds_virtualize_stat(struct ds_config *cfg, char **buf_out, size_t *size_out) 
                        sum_iowait = 0, sum_irq = 0, sum_softirq = 0, sum_steal = 0,
                        sum_guest = 0, sum_guest_nice = 0;
 
-    /* First pass: calculate sums for aggregate cpu line */
     while (fgets(line, sizeof(line), f)) {
         int cpu_id;
         if (sscanf(line, "cpu%d", &cpu_id) == 1) {
@@ -223,7 +236,6 @@ int ds_virtualize_stat(struct ds_config *cfg, char **buf_out, size_t *size_out) 
     }
     rewind(f);
 
-    /* Second pass: output virtualized content */
     int aggregate_written = 0;
     while (fgets(line, sizeof(line), f)) {
         if (offset + 1024 >= cap) {
@@ -269,9 +281,28 @@ int ds_virtualize_uptime(struct ds_config *cfg, char **buf_out, size_t *size_out
                 (double)(now.tv_nsec - cfg->start_time.tv_nsec) / 1e9;
     if (up < 0) up = 0;
 
+    FILE *f = fopen("/proc/uptime", "r");
+    if (!f) return -1;
+    double host_up, host_idle;
+    if (fscanf(f, "%lf %lf", &host_up, &host_idle) != 2) {
+        fclose(f);
+        return -1;
+    }
+    fclose(f);
+
+    int host_cpus = (int)sysconf(_SC_NPROCESSORS_ONLN);
+    int container_cpus = host_cpus;
+    if (cfg->cpu_quota > 0 && cfg->cpu_period > 0) {
+        container_cpus = (int)((cfg->cpu_quota + cfg->cpu_period - 1) / cfg->cpu_period);
+        if (container_cpus < 1) container_cpus = 1;
+    }
+
+    double idle = host_idle * ((double)container_cpus / host_cpus);
+    if (idle > up * container_cpus) idle = up * container_cpus;
+
     char *buf = malloc(128);
     if (!buf) return -1;
-    *size_out = snprintf(buf, 128, "%.2f 0.00\n", up);
+    *size_out = snprintf(buf, 128, "%.2f %.2f\n", up, idle);
     *buf_out = buf;
     return 0;
 }
@@ -291,8 +322,8 @@ int ds_virtualize_loadavg(struct ds_config *cfg, char **buf_out, size_t *size_ou
     if (!f) return -1;
 
     double l1, l5, l15;
-    int runnable, total, last_pid;
-    if (fscanf(f, "%lf %lf %lf %d/%d %d", &l1, &l5, &l15, &runnable, &total, &last_pid) != 6) {
+    int runnable, total;
+    if (fscanf(f, "%lf %lf %lf %d/%d %*d", &l1, &l5, &l15, &runnable, &total) != 5) {
         fclose(f);
         return -1;
     }
@@ -302,11 +333,10 @@ int ds_virtualize_loadavg(struct ds_config *cfg, char **buf_out, size_t *size_ou
     char *buf = malloc(256);
     if (!buf) return -1;
 
-    *size_out = snprintf(buf, 256, "%.2f %.2f %.2f %d/%d %d\n",
+    *size_out = snprintf(buf, 256, "%.2f %.2f %.2f %d/%d 0\n",
                          l1 * ratio, l5 * ratio, l15 * ratio,
                          (int)(runnable * ratio) > 0 ? (int)(runnable * ratio) : (runnable > 0 ? 1 : 0),
-                         (int)(total * ratio) > 0 ? (int)(total * ratio) : 1,
-                         last_pid);
+                         (int)(total * ratio) > 0 ? (int)(total * ratio) : 1);
     *buf_out = buf;
     return 0;
 }
@@ -328,11 +358,11 @@ int ds_virtualize_init(struct ds_config *cfg) {
         ds_virtualize_meminfo, ds_virtualize_cpuinfo, ds_virtualize_stat, ds_virtualize_uptime, ds_virtualize_loadavg
     };
 
-    for (int i = 0; i < 5; i++) {
+    for (size_t i = 0; i < ARRAY_SIZE(files); i++) {
         char *vbuf = NULL;
         size_t vsz = 0;
         if (funcs[i](cfg, &vbuf, &vsz) == 0) {
-            char path[PATH_MAX * 4];
+            char path[PATH_MAX * 2];
             snprintf(path, sizeof(path), "%s/%s", vproc_path, files[i]);
             if (write_file(path, vbuf) < 0) {
                 free(vbuf);
@@ -371,12 +401,12 @@ void ds_virtualize_update(struct ds_config *cfg) {
         ds_virtualize_meminfo, ds_virtualize_stat, ds_virtualize_uptime, ds_virtualize_loadavg
     };
 
-    for (int i = 0; i < 4; i++) {
+    for (size_t i = 0; i < ARRAY_SIZE(files); i++) {
         if (funcs[i](cfg, &vbuf, &vsz) == 0) {
             snprintf(path, sizeof(path), "/proc/%d/root/run/droidspaces/vproc/%s", cfg->container_pid, files[i]);
             struct stat st;
             if (stat(path, &st) == 0) {
-                write_file_atomic_at(path, vbuf);
+                write_file_inplace(path, vbuf);
             }
             free(vbuf);
         }
